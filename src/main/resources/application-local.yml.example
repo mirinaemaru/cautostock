@@ -1,0 +1,49 @@
+# application-local.yml.example
+# 이 파일을 복사하여 application-local.yml로 저장하고 실제 값을 입력하세요
+# 주의: application-local.yml 파일은 절대 Git에 커밋하지 마세요!
+
+spring:
+  application:
+    name: trading-system-mvp-local
+
+  datasource:
+    url: jdbc:mariadb://localhost:3306/trading_mvp?useUnicode=true&characterEncoding=utf8mb4
+    username: trading_user
+    password: trading_pass
+
+trading:
+  broker:
+    kis:
+      paper:
+        base-url: https://openapivts.koreainvestment.com:29443
+        app-key: "여기에_모의투자_APP_KEY_입력"
+        app-secret: "여기에_모의투자_APP_SECRET_입력"
+      live:
+        base-url: https://openapi.koreainvestment.com:9443
+        app-key: "여기에_실전투자_APP_KEY_입력_하지만_MVP에서는_사용안함"
+        app-secret: "여기에_실전투자_APP_SECRET_입력_하지만_MVP에서는_사용안함"
+      token:
+        refresh-before-minutes: 30
+      ws:
+        reconnect-delay-ms: 5000
+        max-reconnect-attempts: 10
+
+  risk:
+    global:
+      max-position-value-per-symbol: 1000000
+      max-open-orders: 5
+      max-orders-per-minute: 10
+      daily-loss-limit: 50000
+      consecutive-order-failures-limit: 5
+
+  outbox:
+    publisher:
+      enabled: true
+      batch-size: 100
+      poll-interval-ms: 1000
+      max-retry: 3
+
+logging:
+  level:
+    root: INFO
+    maru.trading: DEBUG

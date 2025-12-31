@@ -1,0 +1,88 @@
+spring:
+  application:
+    name: trading-system-mvp
+
+  datasource:
+    url: jdbc:mariadb://localhost:3306/trading_mvp?useUnicode=true&characterEncoding=utf8mb4
+    username: ${DB_USERNAME}
+    password: ***REMOVED***
+    driver-class-name: org.mariadb.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MariaDBDialect
+        format_sql: true
+        use_sql_comments: true
+    open-in-view: false
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+    validate-on-migrate: true
+
+server:
+  port: 8099
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+
+logging:
+  level:
+    root: INFO
+    maru.trading: DEBUG
+    org.springframework.web: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+# Application specific configuration
+trading:
+  broker:
+    kis:
+      paper:
+        base-url: https://openapivts.koreainvestment.com:29443
+        app-key: ${KIS_PAPER_APP_KEY:}
+        app-secret: ${KIS_PAPER_APP_SECRET:}
+      live:
+        base-url: https://openapi.koreainvestment.com:9443
+        app-key: ${KIS_LIVE_APP_KEY:}
+        app-secret: ${KIS_LIVE_APP_SECRET:}
+      token:
+        refresh-before-minutes: 30
+      ws:
+        reconnect-delay-ms: 5000
+        max-reconnect-attempts: 10
+
+  risk:
+    global:
+      max-position-value-per-symbol: 1000000
+      max-open-orders: 5
+      max-orders-per-minute: 10
+      daily-loss-limit: 50000
+      consecutive-order-failures-limit: 5
+
+  outbox:
+    publisher:
+      enabled: true
+      batch-size: 100
+      poll-interval-ms: 1000
+      max-retry: 3
