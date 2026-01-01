@@ -37,11 +37,20 @@ public class IssueApprovalKeyUseCase {
     public String execute(String broker, String environment, String appKey, String appSecret) {
         log.info("Issuing approval key for broker: {}, environment: {}", broker, environment);
 
-        // Call KIS authentication client
-        String approvalKey = authClient.issueApprovalKey(appKey, appSecret);
+        try {
+            // Determine if LIVE environment
+            boolean isLive = "LIVE".equalsIgnoreCase(environment);
 
-        log.debug("Approval key issued: {}", approvalKey.substring(0, Math.min(10, approvalKey.length())) + "...");
+            // Call KIS authentication client
+            String approvalKey = authClient.issueApprovalKey(appKey, appSecret, isLive);
 
-        return approvalKey;
+            log.debug("Approval key issued: {}", approvalKey.substring(0, Math.min(10, approvalKey.length())) + "...");
+
+            return approvalKey;
+
+        } catch (Exception e) {
+            log.error("Failed to issue approval key for broker: {}, environment: {}", broker, environment, e);
+            throw new RuntimeException("Approval key issuance failed: " + e.getMessage(), e);
+        }
     }
 }
