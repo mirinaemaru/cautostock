@@ -20,13 +20,13 @@ else
     echo "Warning: .env file not found at $ENV_FILE"
 fi
 
-# Java 17 설정
-export JAVA_HOME=/Users/changsupark/Library/Java/JavaVirtualMachines/corretto-17.0.5/Contents/Home
+# Java 17 설정 (.env에서 JAVA_HOME 설정 가능)
+export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk}"
 
-# 데이터베이스 연결 정보 (환경 변수로 오버라이드)
-export SPRING_DATASOURCE_URL="jdbc:mariadb://localhost:3306/trading_mvp?useUnicode=true&characterEncoding=utf8mb4"
-export SPRING_DATASOURCE_USERNAME="nextman"
-export SPRING_DATASOURCE_PASSWORD="***REMOVED***"
+# 데이터베이스 연결 정보 (.env에서 로드)
+export SPRING_DATASOURCE_URL="${DB_URL:-jdbc:mariadb://localhost:3306/trading_mvp?useUnicode=true&characterEncoding=utf8mb4}"
+export SPRING_DATASOURCE_USERNAME="${DB_USER:-trading_user}"
+export SPRING_DATASOURCE_PASSWORD="${DB_PASSWORD:?DB_PASSWORD must be set in .env file}"
 
 echo ""
 echo "Environment Variables:"

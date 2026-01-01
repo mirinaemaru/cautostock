@@ -20,7 +20,7 @@ brew services start mariadb
 mysql -u root -p
 
 CREATE DATABASE trading_mvp CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'nextman'@'localhost' IDENTIFIED BY '***REMOVED***';
+CREATE USER 'nextman'@'localhost' IDENTIFIED BY '1111';
 GRANT ALL PRIVILEGES ON trading_mvp.* TO 'nextman'@'localhost';
 FLUSH PRIVILEGES;
 EXIT;

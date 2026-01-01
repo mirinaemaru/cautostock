@@ -463,7 +463,7 @@ cd /Users/changsupark/projects/cautostock
 # 또는
 export JAVA_HOME=/Users/changsupark/Library/Java/JavaVirtualMachines/corretto-17.0.5/Contents/Home
 export SPRING_DATASOURCE_USERNAME=nextman
-export SPRING_DATASOURCE_PASSWORD=***REMOVED***
+export SPRING_DATASOURCE_PASSWORD=1111
 mvn spring-boot:run
 ```
 
