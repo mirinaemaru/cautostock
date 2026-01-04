@@ -48,8 +48,22 @@ public class RiskStateEntity {
 	@Builder.Default
 	private Integer consecutiveOrderFailures = 0;
 
+	@Column(name = "open_order_count", nullable = false)
+	@Builder.Default
+	private Integer openOrderCount = 0;
+
+	@Column(name = "order_timestamps", columnDefinition = "JSON")
+	private String orderTimestamps;
+
 	@Column(name = "updated_at", nullable = false)
 	private LocalDateTime updatedAt;
+
+	@PrePersist
+	protected void onCreate() {
+		if (updatedAt == null) {
+			updatedAt = LocalDateTime.now();
+		}
+	}
 
 	@PreUpdate
 	protected void onUpdate() {
