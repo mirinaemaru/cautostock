@@ -5,82 +5,130 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * Configuration properties for KIS broker integration.
- * Maps to kis.* properties in application.yml.
+ * Maps to trading.broker.kis.* properties in application.yml.
  */
 @Configuration
-@ConfigurationProperties(prefix = "kis")
+@ConfigurationProperties(prefix = "trading.broker.kis")
 public class KisProperties {
 
-    private String paperBaseUrl = "https://openapivts.koreainvestment.com:29443"; // PAPER REST
-    private String liveBaseUrl = "https://openapi.koreainvestment.com:9443"; // LIVE REST
-    private String paperWsUrl = "ws://ops.koreainvestment.com:21000"; // PAPER WebSocket
-    private String liveWsUrl = "ws://ops.koreainvestment.com:31000"; // LIVE WebSocket
+    private EnvironmentConfig paper = new EnvironmentConfig();
+    private EnvironmentConfig live = new EnvironmentConfig();
+    private TokenConfig token = new TokenConfig();
+    private WebSocketConfig ws = new WebSocketConfig();
 
-    private String appKey;
-    private String appSecret;
-
-    private WebSocketConfig websocket = new WebSocketConfig();
-
-    public String getPaperBaseUrl() {
-        return paperBaseUrl;
+    public EnvironmentConfig getPaper() {
+        return paper;
     }
 
-    public void setPaperBaseUrl(String paperBaseUrl) {
-        this.paperBaseUrl = paperBaseUrl;
+    public void setPaper(EnvironmentConfig paper) {
+        this.paper = paper;
     }
 
-    public String getLiveBaseUrl() {
-        return liveBaseUrl;
+    public EnvironmentConfig getLive() {
+        return live;
     }
 
-    public void setLiveBaseUrl(String liveBaseUrl) {
-        this.liveBaseUrl = liveBaseUrl;
+    public void setLive(EnvironmentConfig live) {
+        this.live = live;
     }
 
-    public String getPaperWsUrl() {
-        return paperWsUrl;
+    public TokenConfig getToken() {
+        return token;
     }
 
-    public void setPaperWsUrl(String paperWsUrl) {
-        this.paperWsUrl = paperWsUrl;
+    public void setToken(TokenConfig token) {
+        this.token = token;
     }
 
-    public String getLiveWsUrl() {
-        return liveWsUrl;
+    public WebSocketConfig getWs() {
+        return ws;
     }
 
-    public void setLiveWsUrl(String liveWsUrl) {
-        this.liveWsUrl = liveWsUrl;
+    public void setWs(WebSocketConfig ws) {
+        this.ws = ws;
     }
 
-    public String getAppKey() {
-        return appKey;
+    /**
+     * Environment-specific configuration (paper or live).
+     */
+    public static class EnvironmentConfig {
+        private String baseUrl;
+        private String wsUrl;
+        private String appKey;
+        private String appSecret;
+        private String accountNo;
+        private String accountProduct = "01";
+
+        public String getBaseUrl() {
+            return baseUrl;
+        }
+
+        public void setBaseUrl(String baseUrl) {
+            this.baseUrl = baseUrl;
+        }
+
+        public String getWsUrl() {
+            return wsUrl;
+        }
+
+        public void setWsUrl(String wsUrl) {
+            this.wsUrl = wsUrl;
+        }
+
+        public String getAppKey() {
+            return appKey;
+        }
+
+        public void setAppKey(String appKey) {
+            this.appKey = appKey;
+        }
+
+        public String getAppSecret() {
+            return appSecret;
+        }
+
+        public void setAppSecret(String appSecret) {
+            this.appSecret = appSecret;
+        }
+
+        public String getAccountNo() {
+            return accountNo;
+        }
+
+        public void setAccountNo(String accountNo) {
+            this.accountNo = accountNo;
+        }
+
+        public String getAccountProduct() {
+            return accountProduct;
+        }
+
+        public void setAccountProduct(String accountProduct) {
+            this.accountProduct = accountProduct;
+        }
     }
 
-    public void setAppKey(String appKey) {
-        this.appKey = appKey;
+    /**
+     * Token configuration.
+     */
+    public static class TokenConfig {
+        private int refreshBeforeMinutes = 30;
+
+        public int getRefreshBeforeMinutes() {
+            return refreshBeforeMinutes;
+        }
+
+        public void setRefreshBeforeMinutes(int refreshBeforeMinutes) {
+            this.refreshBeforeMinutes = refreshBeforeMinutes;
+        }
     }
 
-    public String getAppSecret() {
-        return appSecret;
-    }
-
-    public void setAppSecret(String appSecret) {
-        this.appSecret = appSecret;
-    }
-
-    public WebSocketConfig getWebsocket() {
-        return websocket;
-    }
-
-    public void setWebsocket(WebSocketConfig websocket) {
-        this.websocket = websocket;
-    }
-
+    /**
+     * WebSocket configuration.
+     */
     public static class WebSocketConfig {
-        private int reconnectDelayMs = 5000; // 5 seconds
+        private int reconnectDelayMs = 5000;
         private int maxReconnectAttempts = 10;
-        private int pingIntervalMs = 30000; // 30 seconds
 
         public int getReconnectDelayMs() {
             return reconnectDelayMs;
@@ -96,14 +144,6 @@ public class KisProperties {
 
         public void setMaxReconnectAttempts(int maxReconnectAttempts) {
             this.maxReconnectAttempts = maxReconnectAttempts;
-        }
-
-        public int getPingIntervalMs() {
-            return pingIntervalMs;
-        }
-
-        public void setPingIntervalMs(int pingIntervalMs) {
-            this.pingIntervalMs = pingIntervalMs;
         }
     }
 }

@@ -59,6 +59,22 @@ public class KisBrokerClient implements BrokerClient {
 	}
 
 	@Override
+	public BrokerResult modifyOrder(String orderId, java.math.BigDecimal newQty, java.math.BigDecimal newPrice) {
+		log.info("[KIS STUB] Modify order: orderId={}, newQty={}, newPrice={}",
+				orderId, newQty, newPrice);
+
+		// Stub: 항상 성공으로 응답
+		log.info("[KIS STUB] Order modified successfully");
+
+		return BrokerResult.success("Order modified");
+
+		// 실제 구현 예시:
+		// KisModifyRequest request = new KisModifyRequest(orderId, newQty, newPrice);
+		// KisModifyResponse response = kisRestClient.modifyOrder(request);
+		// return mapper.toBrokerResult(response);
+	}
+
+	@Override
 	public BrokerOrderStatus getOrderStatus(String brokerOrderNo) {
 		log.info("[KIS STUB] Get order status: brokerOrderNo={}", brokerOrderNo);
 

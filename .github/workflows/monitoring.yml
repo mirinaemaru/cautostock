@@ -1,0 +1,95 @@
+name: Monitoring - Scheduled Health Checks
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'  # 15분마다 실행
+  workflow_dispatch:  # 수동 트리거 허용
+
+jobs:
+  health-check:
+    name: Health Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Production Health Check
+        id: health_check
+        run: |
+          HEALTH_URL="${{ secrets.PRODUCTION_HEALTH_URL }}"
+
+          if [ -z "$HEALTH_URL" ]; then
+            echo "⚠️ PRODUCTION_HEALTH_URL이 설정되지 않았습니다."
+            exit 0
+          fi
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" "$HEALTH_URL" || echo "000")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n-1)
+
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "status=healthy" >> $GITHUB_OUTPUT
+            echo "✅ 시스템 정상"
+          elif [ "$HTTP_CODE" = "503" ]; then
+            echo "status=degraded" >> $GITHUB_OUTPUT
+            echo "⚠️ 시스템 점검 중"
+          else
+            echo "status=down" >> $GITHUB_OUTPUT
+            echo "❌ 시스템 다운"
+            exit 1
+          fi
+
+      - name: Check Kill Switch
+        if: always()
+        run: |
+          KILL_SWITCH_URL="${{ secrets.PRODUCTION_KILL_SWITCH_URL }}"
+
+          if [ -z "$KILL_SWITCH_URL" ]; then
+            echo "⚠️ PRODUCTION_KILL_SWITCH_URL이 설정되지 않았습니다."
+            exit 0
+          fi
+
+          RESPONSE=$(curl -s "$KILL_SWITCH_URL" || echo "{}")
+          ENABLED=$(echo "$RESPONSE" | grep -o '"enabled":[^,}]*' | cut -d: -f2 | tr -d ' ')
+
+          if [ "$ENABLED" = "true" ]; then
+            echo "🔴 Kill Switch 활성화됨 - 자동 거래 차단 중"
+          elif [ "$ENABLED" = "false" ]; then
+            echo "✅ Kill Switch 비활성화 - 정상 거래 중"
+          else
+            echo "⚠️ Kill Switch 상태 확인 불가"
+          fi
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ 헬스체크 실패 - 알림이 필요합니다"
+          echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # 실제 운영에서는 여기에 Slack, Email 등의 알림 추가
+
+  metrics-check:
+    name: Metrics Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Query Prometheus Metrics
+        run: |
+          PROMETHEUS_URL="${{ secrets.PROMETHEUS_URL }}"
+
+          if [ -z "$PROMETHEUS_URL" ]; then
+            echo "⚠️ PROMETHEUS_URL이 설정되지 않았습니다."
+            exit 0
+          fi
+
+          # JVM 메모리 사용률 체크
+          MEMORY_QUERY="jvm_memory_used_bytes{application=\"trading-system\",area=\"heap\"}/jvm_memory_max_bytes{application=\"trading-system\",area=\"heap\"}"
+          MEMORY_USAGE=$(curl -s "${PROMETHEUS_URL}/api/v1/query?query=${MEMORY_QUERY}" | grep -o '"value":\[[^]]*\]' || echo "")
+
+          echo "메모리 사용률: $MEMORY_USAGE"
+
+          # 에러율 체크
+          ERROR_QUERY="rate(http_server_requests_seconds_count{application=\"trading-system\",status=~\"5..\"}[5m])"
+          ERROR_RATE=$(curl -s "${PROMETHEUS_URL}/api/v1/query?query=${ERROR_QUERY}" | grep -o '"value":\[[^]]*\]' || echo "")
+
+          echo "에러율 (5분): $ERROR_RATE"

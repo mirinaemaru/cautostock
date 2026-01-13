@@ -1,0 +1,53 @@
+# Prometheus Configuration for Trading System
+
+global:
+  scrape_interval: 15s     # 메트릭 수집 간격
+  evaluation_interval: 15s # 룰 평가 간격
+  external_labels:
+    cluster: 'trading-system'
+    environment: 'production'
+
+# Alertmanager 설정 (선택 사항)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ['alertmanager:9093']
+
+# 룰 파일 로드 (선택 사항)
+# rule_files:
+#   - "alerts/*.yml"
+
+# 메트릭 수집 대상 설정
+scrape_configs:
+  # Trading System Application
+  - job_name: 'trading-system'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['host.docker.internal:8080']  # Docker 내부에서 호스트 접근
+        labels:
+          application: 'trading-system'
+          service: 'trading-api'
+    scrape_interval: 10s  # 트레이딩 시스템은 더 자주 수집
+    scrape_timeout: 5s
+
+  # Prometheus 자체 모니터링
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          application: 'prometheus'
+
+  # MariaDB Exporter (선택 사항)
+  # - job_name: 'mariadb'
+  #   static_configs:
+  #     - targets: ['mariadb-exporter:9104']
+  #       labels:
+  #         application: 'mariadb'
+  #         database: 'trading_mvp'
+
+  # Node Exporter (시스템 메트릭, 선택 사항)
+  # - job_name: 'node'
+  #   static_configs:
+  #     - targets: ['node-exporter:9100']
+  #       labels:
+  #         application: 'node-exporter'

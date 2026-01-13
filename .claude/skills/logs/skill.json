@@ -1,0 +1,7 @@
+{
+  "name": "logs",
+  "description": "Show server logs. Use when: '로그', 'logs', 'show logs', or debugging issues.",
+  "version": "1.0.0",
+  "tags": ["server", "debugging", "logs"],
+  "userInvocable": true
+}

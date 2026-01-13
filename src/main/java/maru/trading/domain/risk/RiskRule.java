@@ -15,6 +15,10 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 @Builder
 public class RiskRule {
+	private String riskRuleId;
+	private RiskRuleScope scope;
+	private String accountId;
+	private String symbol;
 	private BigDecimal maxPositionValuePerSymbol;
 	private Integer maxOpenOrders;
 	private Integer maxOrdersPerMinute;
@@ -23,6 +27,7 @@ public class RiskRule {
 
 	public static RiskRule defaultGlobalRule() {
 		return RiskRule.builder()
+				.scope(RiskRuleScope.GLOBAL)
 				.maxPositionValuePerSymbol(BigDecimal.valueOf(1000000))
 				.maxOpenOrders(5)
 				.maxOrdersPerMinute(10)

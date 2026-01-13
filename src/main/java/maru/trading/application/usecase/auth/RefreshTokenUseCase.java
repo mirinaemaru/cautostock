@@ -1,6 +1,7 @@
 package maru.trading.application.usecase.auth;
 
 import maru.trading.application.ports.repo.BrokerTokenRepository;
+import maru.trading.broker.kis.api.KisApiException;
 import maru.trading.broker.kis.auth.KisAuthenticationClient;
 import maru.trading.broker.kis.dto.KisTokenResponse;
 import maru.trading.domain.account.BrokerToken;

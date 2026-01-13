@@ -24,6 +24,7 @@ public class RiskState {
 	private BigDecimal exposure;
 	private Integer consecutiveOrderFailures;
 	private Integer openOrderCount; // 현재 미체결 주문 수
+	private OrderFrequencyTracker orderFrequencyTracker;
 
 	public static RiskState defaultState() {
 		return RiskState.builder()
@@ -32,6 +33,7 @@ public class RiskState {
 				.exposure(BigDecimal.ZERO)
 				.consecutiveOrderFailures(0)
 				.openOrderCount(0)
+				.orderFrequencyTracker(new OrderFrequencyTracker())
 				.build();
 	}
 

@@ -80,9 +80,13 @@ public class TokenRefreshScheduler {
      */
     private void refreshToken(BrokerToken token) {
         try {
-            // Get app credentials from config
-            String appKey = kisProperties.getAppKey();
-            String appSecret = kisProperties.getAppSecret();
+            // Get app credentials from config based on environment
+            KisProperties.EnvironmentConfig envConfig = "LIVE".equalsIgnoreCase(token.getEnvironment())
+                    ? kisProperties.getLive()
+                    : kisProperties.getPaper();
+
+            String appKey = envConfig.getAppKey();
+            String appSecret = envConfig.getAppSecret();
 
             if (appKey == null || appSecret == null) {
                 log.warn("Missing app credentials, skipping token refresh: tokenId={}", token.getTokenId());

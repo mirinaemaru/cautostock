@@ -31,6 +31,30 @@ public class MarketBar {
     }
 
     /**
+     * Restore a MarketBar from persisted data.
+     * Factory method for recreating bars from database.
+     */
+    public static MarketBar restore(
+            String symbol,
+            String timeframe,
+            LocalDateTime barTimestamp,
+            BigDecimal open,
+            BigDecimal high,
+            BigDecimal low,
+            BigDecimal close,
+            Long volume,
+            Boolean closed) {
+        MarketBar bar = new MarketBar(symbol, timeframe, barTimestamp);
+        bar.open = open;
+        bar.high = high;
+        bar.low = low;
+        bar.close = close;
+        bar.volume = volume != null ? volume : 0L;
+        bar.closed = closed != null ? closed : true;
+        return bar;
+    }
+
+    /**
      * Add a tick to the bar, updating OHLCV values.
      */
     public void addTick(MarketTick tick) {

@@ -18,6 +18,11 @@ public interface BrokerClient {
 	BrokerResult cancelOrder(String orderId);
 
 	/**
+	 * 주문 정정
+	 */
+	BrokerResult modifyOrder(String orderId, java.math.BigDecimal newQty, java.math.BigDecimal newPrice);
+
+	/**
 	 * 주문 상태 조회
 	 */
 	BrokerOrderStatus getOrderStatus(String brokerOrderNo);

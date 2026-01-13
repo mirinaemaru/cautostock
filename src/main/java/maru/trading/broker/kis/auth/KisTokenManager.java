@@ -2,9 +2,11 @@ package maru.trading.broker.kis.auth;
 
 import maru.trading.application.ports.repo.BrokerTokenRepository;
 import maru.trading.application.usecase.auth.RefreshTokenUseCase;
+import maru.trading.broker.kis.config.KisProperties;
 import maru.trading.domain.account.BrokerToken;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -28,14 +30,37 @@ public class KisTokenManager {
 
     private final BrokerTokenRepository tokenRepository;
     private final RefreshTokenUseCase refreshTokenUseCase;
+    private final KisProperties kisProperties;
     private final Map<TokenKey, BrokerToken> tokenCache;
+
+    @Value("${spring.profiles.active:paper}")
+    private String activeProfile;
 
     public KisTokenManager(
             BrokerTokenRepository tokenRepository,
-            RefreshTokenUseCase refreshTokenUseCase) {
+            RefreshTokenUseCase refreshTokenUseCase,
+            KisProperties kisProperties) {
         this.tokenRepository = tokenRepository;
         this.refreshTokenUseCase = refreshTokenUseCase;
+        this.kisProperties = kisProperties;
         this.tokenCache = new ConcurrentHashMap<>();
+    }
+
+    /**
+     * Get access token for current active profile.
+     * Convenience method that uses the active profile to determine environment.
+     *
+     * @return Valid access token string
+     */
+    public String getAccessToken() {
+        String environment = "live".equalsIgnoreCase(activeProfile) ? "LIVE" : "PAPER";
+        KisProperties.EnvironmentConfig envConfig = "LIVE".equals(environment)
+                ? kisProperties.getLive()
+                : kisProperties.getPaper();
+
+        BrokerToken token = getValidToken("KIS", environment,
+                envConfig.getAppKey(), envConfig.getAppSecret());
+        return token.getAccessToken();
     }
 
     /**

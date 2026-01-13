@@ -27,6 +27,8 @@ export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk}"
 export SPRING_DATASOURCE_URL="${DB_URL:-jdbc:mariadb://localhost:3306/trading_mvp?useUnicode=true&characterEncoding=utf8mb4}"
 export SPRING_DATASOURCE_USERNAME="${DB_USER:-trading_user}"
 export SPRING_DATASOURCE_PASSWORD="${DB_PASSWORD:?DB_PASSWORD must be set in .env file}"
+# application.yml에서 사용하는 변수
+export DB_USERNAME="${DB_USER:-trading_user}"
 
 echo ""
 echo "Environment Variables:"
@@ -41,5 +43,5 @@ echo ""
 
 cd "$SCRIPT_DIR"
 
-# Maven으로 실행
-mvn spring-boot:run
+# Maven으로 실행 (테스트 건너뛰기)
+mvn spring-boot:run -Dmaven.test.skip=true

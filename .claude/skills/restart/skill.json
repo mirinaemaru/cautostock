@@ -1,0 +1,7 @@
+{
+  "name": "restart",
+  "description": "Restart local dev server (port 8090). Use when: '재시작', 'restart', or after code changes.",
+  "version": "1.0.0",
+  "tags": ["server", "development"],
+  "userInvocable": true
+}

@@ -29,4 +29,30 @@ public class Order {
 	private OrderStatus status;
 	private String idempotencyKey;
 	private String brokerOrderNo;
+
+	/**
+	 * Validate that the order can be modified.
+	 * Throws OrderModificationException if order cannot be modified.
+	 */
+	public void validateModifiable() {
+		if (status != OrderStatus.NEW && status != OrderStatus.SENT && status != OrderStatus.ACCEPTED) {
+			throw new OrderModificationException(
+					"Order cannot be modified in status: " + status,
+					orderId,
+					status);
+		}
+	}
+
+	/**
+	 * Validate that the order can be cancelled.
+	 * Throws OrderCancellationException if order cannot be cancelled.
+	 */
+	public void validateCancellable() {
+		if (status != OrderStatus.NEW && status != OrderStatus.SENT && status != OrderStatus.ACCEPTED) {
+			throw new OrderCancellationException(
+					"Order cannot be cancelled in status: " + status,
+					orderId,
+					status);
+		}
+	}
 }
