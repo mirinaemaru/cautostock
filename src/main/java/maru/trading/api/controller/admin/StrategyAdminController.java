@@ -6,6 +6,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import maru.trading.api.dto.request.StrategyCreateRequest;
+import maru.trading.api.dto.request.StrategyParamsUpdateRequest;
 import maru.trading.api.dto.response.StrategyResponse;
 import maru.trading.domain.shared.DomainException;
 import maru.trading.domain.shared.ErrorCode;
@@ -138,6 +139,44 @@ public class StrategyAdminController {
 		Map<String, Object> params = version != null ? fromJson(version.getParamsJson()) : new HashMap<>();
 
 		return ResponseEntity.ok(toResponse(updated, params));
+	}
+
+	/**
+	 * 전략 파라미터 수정 (새 버전 생성)
+	 */
+	@PutMapping("/{strategyId}/params")
+	public ResponseEntity<StrategyResponse> updateStrategyParams(
+			@PathVariable String strategyId,
+			@Valid @RequestBody StrategyParamsUpdateRequest request
+	) {
+		log.info("Update strategy params: strategyId={}", strategyId);
+
+		StrategyEntity strategy = strategyRepository.findById(strategyId)
+				.orElseThrow(() -> new DomainException(ErrorCode.STRATEGY_001, "Strategy not found: " + strategyId));
+
+		// 현재 최대 버전 번호 조회
+		Integer maxVersionNo = strategyVersionRepository.findMaxVersionNoByStrategyId(strategyId)
+				.orElse(0);
+
+		// 새 버전 생성
+		String newVersionId = UlidGenerator.generate();
+		StrategyVersionEntity newVersion = StrategyVersionEntity.builder()
+				.strategyVersionId(newVersionId)
+				.strategyId(strategyId)
+				.versionNo(maxVersionNo + 1)
+				.paramsJson(toJson(request.getParams()))
+				.build();
+
+		strategyVersionRepository.save(newVersion);
+
+		// 전략의 activeVersionId 업데이트
+		strategy.setActiveVersionId(newVersionId);
+		StrategyEntity updated = strategyRepository.save(strategy);
+
+		log.info("Created new strategy version: strategyId={}, versionId={}, versionNo={}",
+				strategyId, newVersionId, maxVersionNo + 1);
+
+		return ResponseEntity.ok(toResponse(updated, request.getParams()));
 	}
 
 	/**

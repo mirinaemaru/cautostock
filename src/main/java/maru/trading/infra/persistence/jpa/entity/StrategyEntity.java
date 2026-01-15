@@ -62,4 +62,8 @@ public class StrategyEntity {
 	public void deactivate() {
 		this.status = "INACTIVE";
 	}
+
+	public void setActiveVersionId(String versionId) {
+		this.activeVersionId = versionId;
+	}
 }

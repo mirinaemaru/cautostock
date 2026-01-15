@@ -116,7 +116,7 @@ trading:
     publisher:
       enabled: true
       batch-size: 100
-      poll-interval-ms: 1000
+      poll-interval-ms: 10000
       max-retry: 3
 
   instrument:
