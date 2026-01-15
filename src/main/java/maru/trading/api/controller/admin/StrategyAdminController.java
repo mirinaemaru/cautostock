@@ -54,17 +54,7 @@ public class StrategyAdminController {
 		String strategyId = UlidGenerator.generate();
 		String versionId = UlidGenerator.generate();
 
-		// Strategy Version 생성
-		StrategyVersionEntity version = StrategyVersionEntity.builder()
-				.strategyVersionId(versionId)
-				.strategyId(strategyId)
-				.versionNo(1)
-				.paramsJson(toJson(request.getParams()))
-				.build();
-
-		strategyVersionRepository.save(version);
-
-		// Strategy 생성
+		// Strategy 먼저 생성 (FK 제약조건 때문에 strategy_versions보다 먼저)
 		StrategyEntity strategy = StrategyEntity.builder()
 				.strategyId(strategyId)
 				.name(request.getName())
@@ -75,6 +65,16 @@ public class StrategyAdminController {
 				.build();
 
 		StrategyEntity saved = strategyRepository.save(strategy);
+
+		// Strategy Version 생성 (strategy_id FK 참조)
+		StrategyVersionEntity version = StrategyVersionEntity.builder()
+				.strategyVersionId(versionId)
+				.strategyId(strategyId)
+				.versionNo(1)
+				.paramsJson(toJson(request.getParams()))
+				.build();
+
+		strategyVersionRepository.save(version);
 
 		StrategyResponse response = toResponse(saved, request.getParams());
 		return ResponseEntity.status(HttpStatus.CREATED).body(response);
