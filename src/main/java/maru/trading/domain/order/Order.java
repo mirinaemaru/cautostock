@@ -31,13 +31,39 @@ public class Order {
 	private String brokerOrderNo;
 
 	/**
+	 * Check if the order can be cancelled.
+	 * Returns true for SENT, ACCEPTED, PART_FILLED states.
+	 */
+	public boolean isCancellable() {
+		if (status == null) {
+			return false;
+		}
+		return status == OrderStatus.SENT ||
+			   status == OrderStatus.ACCEPTED ||
+			   status == OrderStatus.PART_FILLED;
+	}
+
+	/**
+	 * Check if the order can be modified.
+	 * Returns true for SENT, ACCEPTED, PART_FILLED states.
+	 */
+	public boolean isModifiable() {
+		if (status == null) {
+			return false;
+		}
+		return status == OrderStatus.SENT ||
+			   status == OrderStatus.ACCEPTED ||
+			   status == OrderStatus.PART_FILLED;
+	}
+
+	/**
 	 * Validate that the order can be modified.
 	 * Throws OrderModificationException if order cannot be modified.
 	 */
 	public void validateModifiable() {
-		if (status != OrderStatus.NEW && status != OrderStatus.SENT && status != OrderStatus.ACCEPTED) {
+		if (!isModifiable()) {
 			throw new OrderModificationException(
-					"Order cannot be modified in status: " + status,
+					"Order cannot be modified in current state: " + status,
 					orderId,
 					status);
 		}
@@ -48,9 +74,9 @@ public class Order {
 	 * Throws OrderCancellationException if order cannot be cancelled.
 	 */
 	public void validateCancellable() {
-		if (status != OrderStatus.NEW && status != OrderStatus.SENT && status != OrderStatus.ACCEPTED) {
+		if (!isCancellable()) {
 			throw new OrderCancellationException(
-					"Order cannot be cancelled in status: " + status,
+					"Order cannot be cancelled in current state: " + status,
 					orderId,
 					status);
 		}
