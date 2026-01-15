@@ -2,14 +2,16 @@ package maru.trading.application.usecase.trading;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import maru.trading.application.ports.repo.PositionRepository;
+import maru.trading.application.ports.repo.RiskRuleRepository;
+import maru.trading.application.ports.repo.RiskStateRepository;
+import maru.trading.domain.execution.Position;
 import maru.trading.domain.order.Order;
 import maru.trading.domain.risk.RiskDecision;
 import maru.trading.domain.risk.RiskEngine;
 import maru.trading.domain.risk.RiskRule;
 import maru.trading.domain.risk.RiskState;
-import maru.trading.infra.persistence.jpa.entity.RiskStateEntity;
 import maru.trading.infra.persistence.jpa.repository.OrderJpaRepository;
-import maru.trading.infra.persistence.jpa.repository.RiskStateJpaRepository;
 import org.springframework.stereotype.Service;
 
 /**
@@ -21,7 +23,9 @@ import org.springframework.stereotype.Service;
 public class EvaluateRiskUseCase {
 
 	private final RiskEngine riskEngine = new RiskEngine();
-	private final RiskStateJpaRepository riskStateRepository;
+	private final RiskStateRepository riskStateRepository;
+	private final RiskRuleRepository riskRuleRepository;
+	private final PositionRepository positionRepository;
 	private final OrderJpaRepository orderRepository;
 
 	/**
@@ -31,13 +35,14 @@ public class EvaluateRiskUseCase {
 		log.info("Evaluate risk for order: orderId={}, accountId={}",
 				order.getOrderId(), order.getAccountId());
 
-		// 리스크 룰 조회 (여기서는 기본값 사용)
-		RiskRule rule = RiskRule.defaultGlobalRule();
+		// 리스크 룰 조회 (DB에서 조회 후 없으면 기본값 사용)
+		RiskRule rule = riskRuleRepository.findGlobalRule()
+				.orElse(RiskRule.defaultGlobalRule());
 
-		// 리스크 상태 조회
+		// 리스크 상태 조회 (orderFrequencyTracker 포함)
 		RiskState state = getRiskState(order.getAccountId());
 
-		// 미체결 주문 수 조회 및 설정
+		// 미체결 주문 수 조회 및 설정 (orderFrequencyTracker 보존)
 		long openOrderCount = orderRepository.countOpenOrdersByAccountId(order.getAccountId());
 		state = RiskState.builder()
 				.riskStateId(state.getRiskStateId())
@@ -49,10 +54,16 @@ public class EvaluateRiskUseCase {
 				.exposure(state.getExposure())
 				.consecutiveOrderFailures(state.getConsecutiveOrderFailures())
 				.openOrderCount((int) openOrderCount)
+				.orderFrequencyTracker(state.getOrderFrequencyTracker())
 				.build();
 
-		// 리스크 평가
-		RiskDecision decision = riskEngine.evaluatePreTrade(order, rule, state);
+		// 기존 포지션 조회 (포지션 노출 한도 체크용)
+		Position existingPosition = positionRepository
+				.findByAccountAndSymbol(order.getAccountId(), order.getSymbol())
+				.orElse(null);
+
+		// 리스크 평가 (기존 포지션 포함)
+		RiskDecision decision = riskEngine.evaluatePreTrade(order, rule, state, existingPosition);
 
 		if (!decision.isApproved()) {
 			log.warn("Risk check rejected: reason={}, rule={}",
@@ -63,25 +74,9 @@ public class EvaluateRiskUseCase {
 	}
 
 	private RiskState getRiskState(String accountId) {
-		RiskStateEntity entity = riskStateRepository
-				.findByScopeAndAccountId("ACCOUNT", accountId)
-				.orElseGet(() -> riskStateRepository
-						.findByScope("GLOBAL")
-						.orElse(null));
-
-		if (entity == null) {
-			return RiskState.defaultState();
-		}
-
-		return RiskState.builder()
-				.riskStateId(entity.getRiskStateId())
-				.scope(entity.getScope())
-				.accountId(entity.getAccountId())
-				.killSwitchStatus(entity.getKillSwitchStatus())
-				.killSwitchReason(entity.getKillSwitchReason())
-				.dailyPnl(entity.getDailyPnl())
-				.exposure(entity.getExposure())
-				.consecutiveOrderFailures(entity.getConsecutiveOrderFailures())
-				.build();
+		// RiskStateRepository (어댑터) 사용 - orderFrequencyTracker 포함하여 변환
+		return riskStateRepository.findByAccountId(accountId)
+				.orElseGet(() -> riskStateRepository.findGlobalState()
+						.orElse(RiskState.defaultState()));
 	}
 }

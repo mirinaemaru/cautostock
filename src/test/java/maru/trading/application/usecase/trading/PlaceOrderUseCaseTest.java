@@ -3,12 +3,14 @@ package maru.trading.application.usecase.trading;
 import maru.trading.TestFixtures;
 import maru.trading.application.ports.broker.BrokerAck;
 import maru.trading.application.ports.broker.BrokerClient;
+import maru.trading.application.ports.repo.RiskStateRepository;
 import maru.trading.domain.order.Order;
 import maru.trading.domain.order.OrderStatus;
 import maru.trading.domain.order.OrderType;
 import maru.trading.domain.order.Side;
 import maru.trading.domain.risk.RiskDecision;
 import maru.trading.domain.risk.RiskLimitExceededException;
+import maru.trading.domain.risk.RiskState;
 import maru.trading.infra.messaging.outbox.OutboxEvent;
 import maru.trading.infra.messaging.outbox.OutboxService;
 import maru.trading.infra.persistence.jpa.entity.OrderEntity;
@@ -57,6 +59,9 @@ class PlaceOrderUseCaseTest {
 
     @Mock
     private OutboxService outboxService;
+
+    @Mock
+    private RiskStateRepository riskStateRepository;
 
     @InjectMocks
     private PlaceOrderUseCase placeOrderUseCase;

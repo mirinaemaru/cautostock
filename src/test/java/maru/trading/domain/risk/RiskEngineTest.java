@@ -1,6 +1,8 @@
 package maru.trading.domain.risk;
 
 import maru.trading.TestFixtures;
+import maru.trading.domain.execution.Position;
+import maru.trading.domain.market.TradingSession;
 import maru.trading.domain.order.Order;
 import maru.trading.domain.order.Side;
 import org.junit.jupiter.api.BeforeEach;
@@ -8,6 +10,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -18,9 +23,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 1. Kill Switch 체크
  * 2. Daily PnL Limit 체크
  * 3. Max Open Orders 체크
- * 4. Max Position Value 체크
- * 5. Consecutive Failures 체크
- * 6. Kill Switch 자동 트리거 조건
+ * 4. Order Frequency 체크
+ * 5. Position Exposure 체크
+ * 6. Consecutive Failures 체크
+ * 7. Market Hours 체크
  */
 @DisplayName("RiskEngine 도메인 테스트")
 class RiskEngineTest {
@@ -137,14 +143,47 @@ class RiskEngineTest {
         assertThat(decision.isApproved()).isTrue();
     }
 
-    // ==================== 4. Max Position Value Tests ====================
+    // ==================== 4. Order Frequency Tests ====================
 
     @Test
-    @DisplayName("종목당 최대 투자금액 초과 시 주문 거부")
-    void testMaxPositionValue_Exceeded_Reject() {
+    @DisplayName("주문 빈도 제한 초과 시 주문 거부")
+    void testOrderFrequency_Exceeded_Reject() {
         // Given
-        RiskRule lowValueRule = RiskRule.builder()
-            .riskRuleId("RULE_LOW_VAL")
+        LocalDateTime now = LocalDateTime.now();
+        testState.recordOrderTimestamp(now.minusSeconds(30));
+        testState.recordOrderTimestamp(now.minusSeconds(40));
+        testState.recordOrderTimestamp(now.minusSeconds(50));
+        testState.recordOrderTimestamp(now.minusSeconds(55));
+        testState.recordOrderTimestamp(now.minusSeconds(58));
+        // 5 orders in last minute, but we need to check after recording more
+
+        // Create a rule with low limit
+        RiskRule lowFrequencyRule = RiskRule.builder()
+            .riskRuleId("RULE_LOW_FREQ")
+            .scope(RiskRuleScope.GLOBAL)
+            .maxOrdersPerMinute(3)
+            .dailyLossLimit(BigDecimal.valueOf(50000))
+            .maxOpenOrders(10)
+            .maxPositionValuePerSymbol(BigDecimal.valueOf(1000000))
+            .consecutiveOrderFailuresLimit(5)
+            .build();
+
+        // When
+        RiskDecision decision = riskEngine.evaluatePreTrade(testOrder, lowFrequencyRule, testState);
+
+        // Then
+        assertThat(decision.isApproved()).isFalse();
+        assertThat(decision.getRuleViolated()).isEqualTo("ORDER_FREQUENCY_LIMIT");
+    }
+
+    // ==================== 5. Position Exposure Tests ====================
+
+    @Test
+    @DisplayName("포지션 노출 한도 초과 시 주문 거부 (신규 포지션)")
+    void testPositionExposure_NewPosition_Exceeded_Reject() {
+        // Given
+        RiskRule lowExposureRule = RiskRule.builder()
+            .riskRuleId("RULE_LOW_EXP")
             .scope(RiskRuleScope.GLOBAL)
             .maxPositionValuePerSymbol(BigDecimal.valueOf(500000)) // Low limit
             .maxOpenOrders(10)
@@ -159,27 +198,38 @@ class RiskEngineTest {
             Side.BUY, BigDecimal.valueOf(10), BigDecimal.valueOf(70000), "KEY_002"
         );
 
-        // When
-        RiskDecision decision = riskEngine.evaluatePreTrade(largeOrder, lowValueRule, testState);
+        // When - No existing position
+        RiskDecision decision = riskEngine.evaluatePreTrade(largeOrder, lowExposureRule, testState, null);
 
         // Then
         assertThat(decision.isApproved()).isFalse();
-        assertThat(decision.getRuleViolated()).isEqualTo("MAX_POSITION_VALUE");
+        assertThat(decision.getRuleViolated()).isEqualTo("POSITION_EXPOSURE_LIMIT");
     }
 
     @Test
-    @DisplayName("종목당 최대 투자금액 내 주문 승인")
-    void testMaxPositionValue_WithinLimit_Approve() {
-        // Given - Order value: 10 * 70,000 = 700,000 < 1,000,000 (default rule)
+    @DisplayName("포지션 축소 주문은 노출 감소로 승인")
+    void testPositionExposure_ReducingPosition_Approve() {
+        // Given
+        Position existingLongPosition = TestFixtures.createLongPosition(
+            "POS_001", "ACC_001", "005930", 20, BigDecimal.valueOf(70000)
+        ); // 20 shares @ 70,000 = 1,400,000 (over limit)
+
+        // SELL order to reduce: 10 shares
+        Order sellOrder = TestFixtures.placeMarketOrderWithPrice(
+            "ORDER_SELL", "ACC_001", "005930",
+            Side.SELL, BigDecimal.valueOf(10), BigDecimal.valueOf(70000), "KEY_SELL"
+        );
 
         // When
-        RiskDecision decision = riskEngine.evaluatePreTrade(testOrder, testRule, testState);
+        RiskDecision decision = riskEngine.evaluatePreTrade(
+            sellOrder, testRule, testState, existingLongPosition
+        );
 
         // Then
         assertThat(decision.isApproved()).isTrue();
     }
 
-    // ==================== 5. Consecutive Failures Tests ====================
+    // ==================== 6. Consecutive Failures Tests ====================
 
     @Test
     @DisplayName("연속 실패 한도 초과 시 주문 거부")
@@ -200,25 +250,45 @@ class RiskEngineTest {
         assertThat(decision.getRuleViolated()).isEqualTo("CONSECUTIVE_FAILURES");
     }
 
+    // ==================== 7. Market Hours Tests ====================
+
     @Test
-    @DisplayName("연속 실패 한도 내 주문 승인")
-    void testConsecutiveFailures_WithinLimit_Approve() {
+    @DisplayName("거래시간 체크 비활성화 시 주문 승인")
+    void testMarketHours_Disabled_Approve() {
         // Given
-        RiskState stateWithFewFailures = RiskState.builder()
-            .killSwitchStatus(KillSwitchStatus.OFF)
-            .dailyPnl(BigDecimal.ZERO)
-            .openOrderCount(0)
-            .consecutiveOrderFailures(2) // Below limit
-            .build();
+        boolean marketHoursEnabled = false;
+        Set<TradingSession> allowedSessions = Set.of(TradingSession.REGULAR);
+        Set<LocalDate> publicHolidays = Set.of();
 
         // When
-        RiskDecision decision = riskEngine.evaluatePreTrade(testOrder, testRule, stateWithFewFailures);
+        RiskDecision decision = riskEngine.evaluatePreTrade(
+            testOrder, testRule, testState, null,
+            marketHoursEnabled, allowedSessions, publicHolidays
+        );
 
         // Then
         assertThat(decision.isApproved()).isTrue();
     }
 
-    // ==================== 6. Kill Switch Auto-Trigger Tests ====================
+    @Test
+    @DisplayName("거래시간 체크 활성화, 허용 세션 없음 시 fail-safe로 승인")
+    void testMarketHours_NoAllowedSessions_FailSafeApprove() {
+        // Given
+        boolean marketHoursEnabled = true;
+        Set<TradingSession> allowedSessions = Set.of(); // Empty
+        Set<LocalDate> publicHolidays = Set.of();
+
+        // When
+        RiskDecision decision = riskEngine.evaluatePreTrade(
+            testOrder, testRule, testState, null,
+            marketHoursEnabled, allowedSessions, publicHolidays
+        );
+
+        // Then
+        assertThat(decision.isApproved()).isTrue();
+    }
+
+    // ==================== Kill Switch Auto-Trigger Tests ====================
 
     @Test
     @DisplayName("일일 손실 한도 초과 시 Kill Switch 트리거 필요")
@@ -263,7 +333,7 @@ class RiskEngineTest {
         assertThat(shouldTrigger).isFalse();
     }
 
-    // ==================== 7. Integration Tests ====================
+    // ==================== Integration Tests ====================
 
     @Test
     @DisplayName("모든 체크 통과 시 주문 승인")
@@ -281,8 +351,15 @@ class RiskEngineTest {
             Side.BUY, BigDecimal.valueOf(5), BigDecimal.valueOf(70000), "KEY_SMALL"
         ); // 5 * 70,000 = 350,000
 
+        boolean marketHoursEnabled = false;
+        Set<TradingSession> allowedSessions = Set.of(TradingSession.REGULAR);
+        Set<LocalDate> publicHolidays = Set.of();
+
         // When
-        RiskDecision decision = riskEngine.evaluatePreTrade(smallOrder, testRule, normalState);
+        RiskDecision decision = riskEngine.evaluatePreTrade(
+            smallOrder, testRule, normalState, null,
+            marketHoursEnabled, allowedSessions, publicHolidays
+        );
 
         // Then
         assertThat(decision.isApproved()).isTrue();

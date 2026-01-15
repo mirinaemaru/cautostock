@@ -4,10 +4,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import maru.trading.application.ports.broker.BrokerAck;
 import maru.trading.application.ports.broker.BrokerClient;
+import maru.trading.application.ports.repo.RiskStateRepository;
 import maru.trading.domain.order.Order;
 import maru.trading.domain.order.OrderStatus;
 import maru.trading.domain.risk.RiskDecision;
 import maru.trading.domain.risk.RiskLimitExceededException;
+import maru.trading.domain.risk.RiskState;
 import maru.trading.infra.config.UlidGenerator;
 import maru.trading.infra.messaging.outbox.OutboxEvent;
 import maru.trading.infra.messaging.outbox.OutboxService;
@@ -32,6 +34,7 @@ public class PlaceOrderUseCase {
 	private final EvaluateRiskUseCase evaluateRiskUseCase;
 	private final BrokerClient brokerClient;
 	private final OutboxService outboxService;
+	private final RiskStateRepository riskStateRepository;
 
 	/**
 	 * 주문 생성 및 전송
@@ -58,6 +61,9 @@ public class PlaceOrderUseCase {
 			log.warn("Order rejected by risk engine: reason={}", riskDecision.getReason());
 			throw new RiskLimitExceededException(riskDecision.getReason());
 		}
+
+		// 2.5. 주문 빈도 추적을 위한 타임스탬프 기록
+		recordOrderTimestamp(order.getAccountId());
 
 		// 3. 주문 저장 (NEW 상태)
 		OrderEntity orderEntity = OrderEntity.builder()
@@ -109,8 +115,8 @@ public class PlaceOrderUseCase {
 		} catch (Exception e) {
 			// 전송 에러
 			log.error("Failed to send order to broker: orderId={}", saved.getOrderId(), e);
-			saved.updateStatus(OrderStatus.ERROR);
 			saved.updateRejection("BROKER_ERROR", e.getMessage());
+			saved.updateStatus(OrderStatus.ERROR);  // updateRejection이 REJECTED로 설정하므로 이후에 ERROR로 덮어씀
 			orderRepository.save(saved);
 
 			// 이벤트 발행
@@ -157,5 +163,26 @@ public class PlaceOrderUseCase {
 				.build();
 
 		outboxService.save(event);
+	}
+
+	/**
+	 * 주문 빈도 추적을 위한 타임스탬프 기록
+	 */
+	private void recordOrderTimestamp(String accountId) {
+		try {
+			RiskState state = riskStateRepository.findByAccountId(accountId)
+					.orElseGet(() -> riskStateRepository.findGlobalState()
+							.orElse(RiskState.defaultState()));
+
+			// 타임스탬프 기록
+			state.recordOrderTimestamp(LocalDateTime.now());
+
+			// 저장
+			riskStateRepository.save(state);
+			log.debug("Recorded order timestamp for accountId={}", accountId);
+		} catch (Exception e) {
+			// 타임스탬프 기록 실패는 주문 처리에 영향을 주지 않도록
+			log.warn("Failed to record order timestamp for accountId={}: {}", accountId, e.getMessage());
+		}
 	}
 }

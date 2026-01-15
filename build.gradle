@@ -59,4 +59,6 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	// 테스트 클래스마다 새 JVM 포크하여 테스트 격리 문제 해결
+	forkEvery = 1
 }

@@ -3,6 +3,7 @@ package maru.trading.application.usecase.execution;
 import maru.trading.application.ports.repo.FillRepository;
 import maru.trading.application.ports.repo.PnlLedgerRepository;
 import maru.trading.application.ports.repo.PositionRepository;
+import maru.trading.application.usecase.risk.UpdateRiskStateWithPnlUseCase;
 import maru.trading.domain.execution.Fill;
 import maru.trading.domain.execution.PnlLedger;
 import maru.trading.domain.execution.Position;
@@ -46,18 +47,21 @@ public class ApplyFillUseCase {
     private final PnlLedgerRepository pnlLedgerRepository;
     private final OutboxService outboxService;
     private final UlidGenerator ulidGenerator;
+    private final UpdateRiskStateWithPnlUseCase updateRiskStateWithPnlUseCase;
 
     public ApplyFillUseCase(
             FillRepository fillRepository,
             PositionRepository positionRepository,
             PnlLedgerRepository pnlLedgerRepository,
             OutboxService outboxService,
-            UlidGenerator ulidGenerator) {
+            UlidGenerator ulidGenerator,
+            UpdateRiskStateWithPnlUseCase updateRiskStateWithPnlUseCase) {
         this.fillRepository = fillRepository;
         this.positionRepository = positionRepository;
         this.pnlLedgerRepository = pnlLedgerRepository;
         this.outboxService = outboxService;
         this.ulidGenerator = ulidGenerator;
+        this.updateRiskStateWithPnlUseCase = updateRiskStateWithPnlUseCase;
     }
 
     /**
@@ -181,6 +185,11 @@ public class ApplyFillUseCase {
         publishFillReceivedEvent(savedFill);
         publishPositionUpdatedEvent(updatedPosition);
         publishPnlUpdatedEvent(fill.getAccountId(), realizedPnlDelta);
+
+        // Step 8: Update risk state with P&L change (for kill switch evaluation)
+        if (realizedPnlDelta.compareTo(BigDecimal.ZERO) != 0) {
+            updateRiskStateWithPnlUseCase.execute(fill.getAccountId(), realizedPnlDelta);
+        }
 
         log.info("Fill applied successfully: fillId={}, positionId={}, realizedPnlDelta={}",
                 fill.getFillId(), updatedPosition.getPositionId(), realizedPnlDelta);
