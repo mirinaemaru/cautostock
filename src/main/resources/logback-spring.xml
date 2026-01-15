@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <!-- 콘솔 출력 -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- 파일 출력 (일단위 롤링) -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>/var/logs/trading/trading-system.log</file>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <!-- 보관 파일명 패턴: /var/logs/trading/trading-system-2026.01.05.log.gz -->
+            <fileNamePattern>/var/logs/trading/trading-system-%d{yyyy.MM.dd}.log.gz</fileNamePattern>
+            <!-- 보관기간 30일 -->
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+    </appender>
+
+    <!-- 로그 레벨 설정 -->
+    <logger name="maru.trading" level="DEBUG"/>
+    <logger name="org.springframework.web" level="INFO"/>
+
+    <!-- p6spy SQL 로그 (실제 파라미터 포함) -->
+    <logger name="p6spy" level="INFO"/>
+
+    <!-- Hibernate 기본 SQL 로그 비활성화 (p6spy 사용) -->
+    <logger name="org.hibernate.SQL" level="OFF"/>
+    <logger name="org.hibernate.type.descriptor.sql.BasicBinder" level="OFF"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
+</configuration>

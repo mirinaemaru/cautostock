@@ -46,15 +46,9 @@ management:
     health:
       show-details: when-authorized
 
-logging:
-  level:
-    root: INFO
-    maru.trading: DEBUG
-    org.springframework.web: INFO
-    org.hibernate.SQL: DEBUG
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+# 로그 설정은 logback-spring.xml에서 관리
+# logging:
+#   참조: src/main/resources/logback-spring.xml
 
 # Application specific configuration
 trading:
@@ -127,6 +121,8 @@ trading:
 
   instrument:
     sync:
-      enabled: false  # Disabled until KIS API integration (Phase 4) is complete
-      cron: "0 0 2 * * *"  # Daily at 2 AM KST
+      enabled: true   # 종목 동기화 스케줄러 활성화
+      cron: "0 0 2 * * *"  # 매일 새벽 2시 실행 (KST)
+      # cron: "0 0 2 * * MON-FRI"  # 평일만 새벽 2시
+      # cron: "0 30 8 * * MON-FRI"  # 평일 장 시작 30분 전
       markets: "KOSPI,KOSDAQ"

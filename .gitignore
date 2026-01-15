@@ -23,6 +23,8 @@ build/
 *.log
 *.gz
 *.tmp
+logs/
+*.pid
 
 # Application
 application-local.yml
