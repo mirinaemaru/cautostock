@@ -35,7 +35,7 @@ public class KillSwitchAdminController {
 			riskState = riskStateRepository.findByScopeAndAccountId("ACCOUNT", accountId)
 					.orElse(null);
 		} else {
-			riskState = riskStateRepository.findByScope("GLOBAL")
+			riskState = riskStateRepository.findFirstByScopeOrderByUpdatedAtDesc("GLOBAL")
 					.orElse(null);
 		}
 

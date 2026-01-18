@@ -95,7 +95,7 @@ public class RiskStateRepositoryAdapter implements RiskStateRepository {
 
     @Override
     public Optional<RiskState> findGlobalState() {
-        return riskStateJpaRepository.findByScope("GLOBAL")
+        return riskStateJpaRepository.findFirstByScopeOrderByUpdatedAtDesc("GLOBAL")
                 .map(this::toDomain);
     }
 

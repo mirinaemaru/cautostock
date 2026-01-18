@@ -9,14 +9,15 @@ import maru.trading.domain.order.OrderStatus;
 import maru.trading.domain.order.Side;
 import maru.trading.domain.risk.RiskLimitExceededException;
 import maru.trading.infra.config.UlidGenerator;
+import maru.trading.infra.persistence.jpa.repository.RiskStateJpaRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -43,11 +44,15 @@ import static org.mockito.BDDMockito.given;
  */
 @SpringBootTest
 @ActiveProfiles("test")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
 @DisplayName("Load Test")
 class LoadTest {
 
     @Autowired
     private PlaceOrderUseCase placeOrderUseCase;
+
+    @Autowired
+    private RiskStateJpaRepository riskStateJpaRepository;
 
     @MockBean
     private BrokerClient brokerClient;
@@ -57,6 +62,9 @@ class LoadTest {
 
     @BeforeEach
     void setUp() {
+        // Clear risk state data to prevent duplicate results from previous tests
+        riskStateJpaRepository.deleteAll();
+
         accountId = "ACC_LOAD_001";
         symbol = "005930";
         given(brokerClient.placeOrder(any()))
@@ -77,7 +85,7 @@ class LoadTest {
             Future<Order> future = executor.submit(() -> {
                 Order order = TestFixtures.placeLimitOrder(
                         UlidGenerator.generate(),
-                        accountId,
+                        accountId + "_" + orderIndex, // Different account to avoid conflicts
                         symbol,
                         Side.BUY,
                         BigDecimal.valueOf(1),

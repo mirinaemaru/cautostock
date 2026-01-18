@@ -11,5 +11,5 @@ public interface RiskStateJpaRepository extends JpaRepository<RiskStateEntity, S
 
 	Optional<RiskStateEntity> findByScopeAndAccountId(String scope, String accountId);
 
-	Optional<RiskStateEntity> findByScope(String scope);
+	Optional<RiskStateEntity> findFirstByScopeOrderByUpdatedAtDesc(String scope);
 }

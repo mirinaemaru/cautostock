@@ -129,7 +129,7 @@ class AdminApiControllerTest {
                 .andExpect(jsonPath("$.reason").value("Emergency stop"));
 
         // Verify persistence
-        RiskStateEntity saved = riskStateRepository.findByScope("GLOBAL")
+        RiskStateEntity saved = riskStateRepository.findFirstByScopeOrderByUpdatedAtDesc("GLOBAL")
                 .orElseThrow();
         assertThat(saved.getKillSwitchStatus()).isEqualTo(KillSwitchStatus.ON);
         assertThat(saved.getKillSwitchReason()).isEqualTo("Emergency stop");
@@ -190,7 +190,7 @@ class AdminApiControllerTest {
                 .andExpect(jsonPath("$.status").value("OFF"));
 
         // Verify persistence
-        RiskStateEntity saved = riskStateRepository.findByScope("GLOBAL")
+        RiskStateEntity saved = riskStateRepository.findFirstByScopeOrderByUpdatedAtDesc("GLOBAL")
                 .orElseThrow();
         assertThat(saved.getKillSwitchStatus()).isEqualTo(KillSwitchStatus.OFF);
     }
