@@ -11,6 +11,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.stream.Collectors;
 
@@ -108,6 +110,42 @@ public class GlobalExceptionHandler {
 		);
 
 		return new ResponseEntity<>(response, HttpStatus.CONFLICT);
+	}
+
+	/**
+	 * 404 Not Found - 핸들러 없음
+	 */
+	@ExceptionHandler(NoHandlerFoundException.class)
+	public ResponseEntity<ErrorResponse> handleNoHandlerFoundException(
+			NoHandlerFoundException ex
+	) {
+		log.warn("No handler found: {} {}", ex.getHttpMethod(), ex.getRequestURL());
+
+		ErrorResponse response = ErrorResponse.of(
+				"NOT_FOUND",
+				"Resource not found",
+				"No handler found for " + ex.getHttpMethod() + " " + ex.getRequestURL()
+		);
+
+		return new ResponseEntity<>(response, HttpStatus.NOT_FOUND);
+	}
+
+	/**
+	 * 404 Not Found - 리소스 없음 (Spring Boot 3.x)
+	 */
+	@ExceptionHandler(NoResourceFoundException.class)
+	public ResponseEntity<ErrorResponse> handleNoResourceFoundException(
+			NoResourceFoundException ex
+	) {
+		log.warn("No resource found: {}", ex.getResourcePath());
+
+		ErrorResponse response = ErrorResponse.of(
+				"NOT_FOUND",
+				"Resource not found",
+				"No resource found at " + ex.getResourcePath()
+		);
+
+		return new ResponseEntity<>(response, HttpStatus.NOT_FOUND);
 	}
 
 	/**
