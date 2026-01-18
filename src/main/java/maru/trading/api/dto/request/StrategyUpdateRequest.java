@@ -1,33 +1,33 @@
-package maru.trading.api.dto.response;
+package maru.trading.api.dto.request;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import maru.trading.domain.shared.Environment;
 
-import java.time.LocalDateTime;
 import java.util.Map;
 
 /**
- * 전략 응답 DTO
+ * 전략 수정 요청 DTO
  */
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@JsonInclude(JsonInclude.Include.NON_NULL)
-public class StrategyResponse {
-	private String strategyId;
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class StrategyUpdateRequest {
+
 	private String name;
+
 	private String description;
-	private String status;
-	private String activeVersionId;
+
 	private Environment mode;
+
+	private String status;
+
 	private Map<String, Object> params;
-	private LocalDateTime createdAt;
-	private LocalDateTime updatedAt;
 
 	// ========== 자동매매 설정 필드 ==========
 
