@@ -381,6 +381,108 @@ class StrategyAdminControllerTest {
         }
     }
 
+    @Nested
+    @DisplayName("DELETE /api/v1/admin/strategies/{strategyId} - Delete Strategy (Soft Delete)")
+    class DeleteStrategy {
+
+        @Test
+        @DisplayName("Should soft delete strategy successfully")
+        void deleteStrategy_Success() throws Exception {
+            // Given
+            String strategyId = createTestStrategy("DELETE_TEST_" + System.currentTimeMillis());
+
+            // Verify strategy exists
+            mockMvc.perform(get(BASE_URL + "/" + strategyId))
+                    .andExpect(status().isOk());
+
+            // When - Delete strategy
+            mockMvc.perform(delete(BASE_URL + "/" + strategyId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.strategyId").value(strategyId));
+
+            // Then - Strategy should not be found (soft deleted)
+            mockMvc.perform(get(BASE_URL + "/" + strategyId))
+                    .andExpect(status().isNotFound());
+
+            // Verify delyn='Y' in database
+            StrategyEntity deleted = strategyRepository.findById(strategyId).orElseThrow();
+            assertThat(deleted.getDelyn()).isEqualTo("Y");
+        }
+
+        @Test
+        @DisplayName("Should return 404 for non-existent strategy")
+        void deleteStrategy_NotFound() throws Exception {
+            // Given
+            String nonExistentId = UlidGenerator.generate();
+
+            // When & Then
+            mockMvc.perform(delete(BASE_URL + "/" + nonExistentId))
+                    .andExpect(status().isNotFound());
+        }
+
+        @Test
+        @DisplayName("Should allow creating strategy with same name after deletion")
+        void deleteStrategy_AllowSameNameAfterDeletion() throws Exception {
+            // Given - Create and delete a strategy
+            String strategyName = "REUSABLE_NAME_" + System.currentTimeMillis();
+            String strategyId = createTestStrategy(strategyName);
+
+            // Delete the strategy
+            mockMvc.perform(delete(BASE_URL + "/" + strategyId))
+                    .andExpect(status().isOk());
+
+            // When - Create new strategy with same name
+            Map<String, Object> params = new HashMap<>();
+            params.put("shortPeriod", 5);
+            params.put("longPeriod", 20);
+
+            StrategyCreateRequest request = StrategyCreateRequest.builder()
+                    .name(strategyName)
+                    .description("New strategy with reused name")
+                    .mode(Environment.PAPER)
+                    .params(params)
+                    .build();
+
+            // Then - Should succeed
+            mockMvc.perform(post(BASE_URL)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.name").value(strategyName));
+        }
+
+        @Test
+        @DisplayName("Should not return deleted strategies in list")
+        void deleteStrategy_NotInList() throws Exception {
+            // Given - Create and delete a strategy
+            String strategyId = createTestStrategy("DELETE_LIST_TEST_" + System.currentTimeMillis());
+
+            // Delete the strategy
+            mockMvc.perform(delete(BASE_URL + "/" + strategyId))
+                    .andExpect(status().isOk());
+
+            // When & Then - Deleted strategy should not appear in list
+            mockMvc.perform(get(BASE_URL))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.items[?(@.strategyId=='" + strategyId + "')]").doesNotExist());
+        }
+
+        @Test
+        @DisplayName("Should return 404 when trying to delete already deleted strategy")
+        void deleteStrategy_AlreadyDeleted() throws Exception {
+            // Given - Create and delete a strategy
+            String strategyId = createTestStrategy("DOUBLE_DELETE_TEST_" + System.currentTimeMillis());
+
+            mockMvc.perform(delete(BASE_URL + "/" + strategyId))
+                    .andExpect(status().isOk());
+
+            // When & Then - Try to delete again
+            mockMvc.perform(delete(BASE_URL + "/" + strategyId))
+                    .andExpect(status().isNotFound());
+        }
+    }
+
     // ==================== Helper Methods ====================
 
     /**

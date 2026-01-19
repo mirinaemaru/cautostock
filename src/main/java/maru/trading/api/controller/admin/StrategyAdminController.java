@@ -49,8 +49,8 @@ public class StrategyAdminController {
 	) {
 		log.info("Create strategy: name={}, mode={}", request.getName(), request.getMode());
 
-		// 중복 체크
-		strategyRepository.findByName(request.getName())
+		// 중복 체크 (삭제되지 않은 전략만)
+		strategyRepository.findByNameAndDelyn(request.getName(), "N")
 				.ifPresent(existing -> {
 					throw new IllegalStateException("Strategy already exists: " + existing.getName());
 				});
@@ -85,11 +85,11 @@ public class StrategyAdminController {
 	}
 
 	/**
-	 * 전략 목록 조회
+	 * 전략 목록 조회 (삭제되지 않은 전략만)
 	 */
 	@GetMapping
 	public ResponseEntity<Map<String, List<StrategyResponse>>> listStrategies() {
-		List<StrategyEntity> strategies = strategyRepository.findAll();
+		List<StrategyEntity> strategies = strategyRepository.findByDelyn("N");
 
 		List<StrategyResponse> items = strategies.stream()
 				.map(s -> {
@@ -108,11 +108,11 @@ public class StrategyAdminController {
 	}
 
 	/**
-	 * 전략 조회
+	 * 전략 조회 (삭제되지 않은 전략만)
 	 */
 	@GetMapping("/{strategyId}")
 	public ResponseEntity<StrategyResponse> getStrategy(@PathVariable String strategyId) {
-		StrategyEntity strategy = strategyRepository.findById(strategyId)
+		StrategyEntity strategy = strategyRepository.findByStrategyIdAndDelyn(strategyId, "N")
 				.orElseThrow(() -> new DomainException(ErrorCode.STRATEGY_001, "Strategy not found: " + strategyId));
 
 		StrategyVersionEntity version = strategyVersionRepository
@@ -129,7 +129,7 @@ public class StrategyAdminController {
 	 */
 	@PostMapping("/{strategyId}/activate")
 	public ResponseEntity<StrategyResponse> activateStrategy(@PathVariable String strategyId) {
-		StrategyEntity strategy = strategyRepository.findById(strategyId)
+		StrategyEntity strategy = strategyRepository.findByStrategyIdAndDelyn(strategyId, "N")
 				.orElseThrow(() -> new DomainException(ErrorCode.STRATEGY_001, "Strategy not found: " + strategyId));
 
 		strategy.activate(strategy.getActiveVersionId());
@@ -154,7 +154,7 @@ public class StrategyAdminController {
 	) {
 		log.info("Update strategy params: strategyId={}", strategyId);
 
-		StrategyEntity strategy = strategyRepository.findById(strategyId)
+		StrategyEntity strategy = strategyRepository.findByStrategyIdAndDelyn(strategyId, "N")
 				.orElseThrow(() -> new DomainException(ErrorCode.STRATEGY_001, "Strategy not found: " + strategyId));
 
 		// 현재 최대 버전 번호 조회
@@ -187,7 +187,7 @@ public class StrategyAdminController {
 	 */
 	@PostMapping("/{strategyId}/deactivate")
 	public ResponseEntity<StrategyResponse> deactivateStrategy(@PathVariable String strategyId) {
-		StrategyEntity strategy = strategyRepository.findById(strategyId)
+		StrategyEntity strategy = strategyRepository.findByStrategyIdAndDelyn(strategyId, "N")
 				.orElseThrow(() -> new DomainException(ErrorCode.STRATEGY_001, "Strategy not found: " + strategyId));
 
 		strategy.deactivate();
@@ -212,7 +212,7 @@ public class StrategyAdminController {
 	) {
 		log.info("Update strategy: strategyId={}, request={}", strategyId, request);
 
-		StrategyEntity strategy = strategyRepository.findById(strategyId)
+		StrategyEntity strategy = strategyRepository.findByStrategyIdAndDelyn(strategyId, "N")
 				.orElseThrow(() -> new DomainException(ErrorCode.STRATEGY_001, "Strategy not found: " + strategyId));
 
 		// 이름 수정
@@ -321,21 +321,19 @@ public class StrategyAdminController {
 	}
 
 	/**
-	 * 전략 삭제
+	 * 전략 삭제 (소프트 삭제)
 	 */
 	@DeleteMapping("/{strategyId}")
 	@Transactional
 	public ResponseEntity<Map<String, Object>> deleteStrategy(@PathVariable String strategyId) {
-		log.info("Delete strategy: strategyId={}", strategyId);
+		log.info("Delete strategy (soft): strategyId={}", strategyId);
 
-		StrategyEntity strategy = strategyRepository.findById(strategyId)
+		StrategyEntity strategy = strategyRepository.findByStrategyIdAndDelyn(strategyId, "N")
 				.orElseThrow(() -> new DomainException(ErrorCode.STRATEGY_001, "Strategy not found: " + strategyId));
 
-		// 관련 버전들 삭제
-		strategyVersionRepository.deleteByStrategyId(strategyId);
-
-		// 전략 삭제
-		strategyRepository.delete(strategy);
+		// 소프트 삭제 (delyn = 'Y')
+		strategy.markDeleted();
+		strategyRepository.save(strategy);
 
 		Map<String, Object> response = new HashMap<>();
 		response.put("success", true);
@@ -355,7 +353,7 @@ public class StrategyAdminController {
 	) {
 		log.info("Update strategy status: strategyId={}, status={}", strategyId, request.getStatus());
 
-		StrategyEntity strategy = strategyRepository.findById(strategyId)
+		StrategyEntity strategy = strategyRepository.findByStrategyIdAndDelyn(strategyId, "N")
 				.orElseThrow(() -> new DomainException(ErrorCode.STRATEGY_001, "Strategy not found: " + strategyId));
 
 		String newStatus = request.getStatus().toUpperCase();

@@ -31,19 +31,19 @@ public class StrategyRepositoryAdapter implements StrategyRepository {
 
     @Override
     public Optional<Strategy> findById(String strategyId) {
-        return strategyJpaRepository.findById(strategyId)
+        return strategyJpaRepository.findByStrategyIdAndDelyn(strategyId, "N")
                 .map(this::toDomain);
     }
 
     @Override
     public Optional<Strategy> findByName(String name) {
-        return strategyJpaRepository.findByName(name)
+        return strategyJpaRepository.findByNameAndDelyn(name, "N")
                 .map(this::toDomain);
     }
 
     @Override
     public List<Strategy> findActiveStrategies() {
-        return strategyJpaRepository.findByStatus("ACTIVE").stream()
+        return strategyJpaRepository.findByStatusAndDelyn("ACTIVE", "N").stream()
                 .map(this::toDomain)
                 .collect(Collectors.toList());
     }

@@ -85,6 +85,11 @@ public class StrategyEntity {
 	@Column(name = "max_positions")
 	private Integer maxPositions;
 
+	// 소프트 삭제 플래그
+	@Column(name = "delyn", length = 1, nullable = false)
+	@Builder.Default
+	private String delyn = "N";
+
 	@PrePersist
 	protected void onCreate() {
 		createdAt = LocalDateTime.now();
@@ -173,5 +178,14 @@ public class StrategyEntity {
 
 	public void setMaxPositions(Integer maxPositions) {
 		this.maxPositions = maxPositions;
+	}
+
+	// 소프트 삭제
+	public void markDeleted() {
+		this.delyn = "Y";
+	}
+
+	public boolean isDeleted() {
+		return "Y".equals(this.delyn);
 	}
 }

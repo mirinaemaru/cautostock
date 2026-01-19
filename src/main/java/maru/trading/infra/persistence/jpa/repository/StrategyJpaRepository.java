@@ -16,4 +16,15 @@ public interface StrategyJpaRepository extends JpaRepository<StrategyEntity, Str
 	List<StrategyEntity> findByStatusAndMode(String status, Environment mode);
 
 	List<StrategyEntity> findByStatus(String status);
+
+	// 소프트 삭제 지원 메서드
+	Optional<StrategyEntity> findByStrategyIdAndDelyn(String strategyId, String delyn);
+
+	Optional<StrategyEntity> findByNameAndDelyn(String name, String delyn);
+
+	List<StrategyEntity> findByDelyn(String delyn);
+
+	List<StrategyEntity> findByStatusAndDelyn(String status, String delyn);
+
+	List<StrategyEntity> findByStatusAndModeAndDelyn(String status, Environment mode, String delyn);
 }

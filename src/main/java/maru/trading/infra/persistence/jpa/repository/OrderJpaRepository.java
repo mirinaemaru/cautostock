@@ -39,4 +39,19 @@ public interface OrderJpaRepository extends JpaRepository<OrderEntity, String> {
 	@Query("SELECT COUNT(o) FROM OrderEntity o WHERE o.accountId = :accountId " +
 			"AND o.status IN ('NEW', 'SENT', 'ACCEPTED', 'PART_FILLED')")
 	long countOpenOrdersByAccountId(@Param("accountId") String accountId);
+
+	@Query("SELECT COUNT(o) FROM OrderEntity o WHERE o.createdAt >= :from AND o.createdAt < :to")
+	long countByCreatedAtBetween(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+	@Query("SELECT COUNT(o) FROM OrderEntity o WHERE o.accountId = :accountId " +
+			"AND o.createdAt >= :from AND o.createdAt < :to")
+	long countByAccountIdAndCreatedAtBetween(
+			@Param("accountId") String accountId,
+			@Param("from") LocalDateTime from,
+			@Param("to") LocalDateTime to);
+
+	List<OrderEntity> findTop20ByOrderByCreatedAtDesc();
+
+	@Query("SELECT o FROM OrderEntity o WHERE o.accountId = :accountId ORDER BY o.createdAt DESC")
+	List<OrderEntity> findRecentByAccountId(@Param("accountId") String accountId, org.springframework.data.domain.Pageable pageable);
 }
