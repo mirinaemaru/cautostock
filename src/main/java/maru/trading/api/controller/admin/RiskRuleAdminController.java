@@ -19,6 +19,9 @@ import java.util.stream.Collectors;
  * Admin API for managing risk rules.
  *
  * Endpoints:
+ * - GET  /api/v1/admin/risk-rules - List all risk rules
+ * - POST /api/v1/admin/risk-rules - Create a new risk rule
+ * - GET  /api/v1/admin/risk-rules/{ruleId} - Get a specific risk rule
  * - POST /api/v1/admin/risk-rules/global - Update global risk rule
  * - POST /api/v1/admin/risk-rules/account/{accountId} - Update account-specific rule
  * - POST /api/v1/admin/risk-rules/account/{accountId}/symbol/{symbol} - Update symbol-specific rule
@@ -39,6 +42,79 @@ public class RiskRuleAdminController {
             RiskRuleRepository riskRuleRepository) {
         this.updateRiskRuleUseCase = updateRiskRuleUseCase;
         this.riskRuleRepository = riskRuleRepository;
+    }
+
+    /**
+     * List all risk rules.
+     *
+     * @param page Page number
+     * @param size Page size
+     * @return List of all risk rules
+     */
+    @GetMapping
+    public ResponseEntity<Map<String, Object>> listAllRules(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+
+        log.info("Listing all risk rules, page: {}, size: {}", page, size);
+
+        List<RiskRule> allRules = riskRuleRepository.findAll();
+
+        // Simple pagination
+        int start = page * size;
+        int end = Math.min(start + size, allRules.size());
+        List<Map<String, Object>> pageContent = start < allRules.size()
+                ? allRules.subList(start, end).stream().map(this::toRuleResponse).collect(Collectors.toList())
+                : new java.util.ArrayList<>();
+
+        return ResponseEntity.ok(Map.of(
+                "content", pageContent,
+                "totalElements", allRules.size(),
+                "totalPages", (allRules.size() + size - 1) / size,
+                "page", page,
+                "size", size
+        ));
+    }
+
+    /**
+     * Create a new risk rule.
+     *
+     * @param request Risk rule creation request
+     * @return Created risk rule
+     */
+    @PostMapping
+    public ResponseEntity<Map<String, Object>> createRule(@Valid @RequestBody UpdateRiskRuleRequest request) {
+
+        log.info("Creating new risk rule");
+
+        // Default to global rule if no scope specified
+        RiskRule rule = updateRiskRuleUseCase.updateGlobalRule(
+                request.getMaxPositionValuePerSymbol(),
+                request.getMaxOpenOrders(),
+                request.getMaxOrdersPerMinute(),
+                request.getDailyLossLimit(),
+                request.getConsecutiveOrderFailuresLimit()
+        );
+
+        log.info("Risk rule created: ruleId={}", rule.getRiskRuleId());
+
+        return ResponseEntity.ok(toRuleResponse(rule));
+    }
+
+    /**
+     * Get a specific risk rule by ID.
+     *
+     * @param ruleId Risk rule identifier
+     * @return Risk rule details
+     */
+    @GetMapping("/{ruleId}")
+    public ResponseEntity<Map<String, Object>> getRule(@PathVariable String ruleId) {
+
+        log.info("Fetching risk rule: {}", ruleId);
+
+        return riskRuleRepository.findById(ruleId)
+                .map(rule -> ResponseEntity.ok(toRuleResponse(rule)))
+                .orElse(ResponseEntity.notFound().build());
     }
 
     /**

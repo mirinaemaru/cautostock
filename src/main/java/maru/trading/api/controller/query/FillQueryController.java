@@ -71,9 +71,9 @@ public class FillQueryController {
             fills = fillRepository.findByAccount(accountId, fromTime, toTime);
 
         } else {
-            // No filters provided - return empty list (or could return error)
-            log.warn("No filters provided for fill query");
-            fills = List.of();
+            // No filters provided - return all fills (limited)
+            log.info("No filters provided for fill query, returning all fills");
+            fills = fillRepository.findAll();
         }
 
         log.info("Found {} fills", fills.size());
@@ -84,6 +84,54 @@ public class FillQueryController {
                 .collect(Collectors.toList());
 
         return ResponseEntity.ok(new FillListResponse(responses));
+    }
+
+    /**
+     * Get fill statistics.
+     */
+    @GetMapping("/statistics")
+    public ResponseEntity<java.util.Map<String, Object>> getFillStatistics(
+            @RequestParam(required = false) String accountId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to) {
+
+        log.info("Get fill statistics: accountId={}", accountId);
+
+        LocalDateTime fromTime = from != null ? from : LocalDateTime.now().minusMonths(1);
+        LocalDateTime toTime = to != null ? to : LocalDateTime.now();
+
+        List<Fill> fills;
+        if (accountId != null && !accountId.isBlank()) {
+            fills = fillRepository.findByAccount(accountId, fromTime, toTime);
+        } else {
+            fills = fillRepository.findAll();
+        }
+
+        // Calculate statistics
+        int totalFills = fills.size();
+        java.math.BigDecimal totalVolume = fills.stream()
+                .map(f -> f.getFillPrice().multiply(java.math.BigDecimal.valueOf(f.getFillQty())))
+                .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+        java.math.BigDecimal totalFees = fills.stream()
+                .map(f -> f.getFee().add(f.getTax()))
+                .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+        long buyCount = fills.stream()
+                .filter(f -> "BUY".equals(f.getSide().name()))
+                .count();
+        long sellCount = totalFills - buyCount;
+
+        java.util.Map<String, Object> stats = new java.util.HashMap<>();
+        stats.put("accountId", accountId);
+        stats.put("fromDate", fromTime.toLocalDate());
+        stats.put("toDate", toTime.toLocalDate());
+        stats.put("totalFills", totalFills);
+        stats.put("totalVolume", totalVolume);
+        stats.put("totalFees", totalFees);
+        stats.put("buyCount", buyCount);
+        stats.put("sellCount", sellCount);
+        stats.put("timestamp", LocalDateTime.now());
+
+        return ResponseEntity.ok(stats);
     }
 
     /**

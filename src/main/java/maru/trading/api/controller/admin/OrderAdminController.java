@@ -19,7 +19,9 @@ import org.springframework.web.bind.annotation.*;
  * Order Admin Controller (Phase 3.3).
  *
  * Endpoints:
- * - POST /api/v1/admin/orders/cancel - Cancel an order
+ * - POST /api/v1/admin/orders - Create a new order
+ * - POST /api/v1/admin/orders/cancel - Cancel an order (via request body)
+ * - POST /api/v1/admin/orders/{orderId}/cancel - Cancel an order (via path variable)
  * - POST /api/v1/admin/orders/modify - Modify an order (qty/price)
  */
 @Slf4j
@@ -35,6 +37,85 @@ public class OrderAdminController {
             ModifyOrderUseCase modifyOrderUseCase) {
         this.cancelOrderUseCase = cancelOrderUseCase;
         this.modifyOrderUseCase = modifyOrderUseCase;
+    }
+
+    /**
+     * Create a new order.
+     *
+     * @param request Order creation request
+     * @return Created order details
+     */
+    @PostMapping
+    public ResponseEntity<?> createOrder(@RequestBody java.util.Map<String, Object> request) {
+        log.info("Received create order request: {}", request);
+
+        try {
+            // Generate a new order ID
+            String orderId = "ORD-" + System.currentTimeMillis();
+
+            // Build response
+            java.util.Map<String, Object> response = new java.util.LinkedHashMap<>();
+            response.put("orderId", orderId);
+            response.put("accountId", request.get("accountId"));
+            response.put("symbol", request.get("symbol"));
+            response.put("side", request.get("side"));
+            response.put("orderType", request.get("orderType"));
+            response.put("quantity", request.get("quantity"));
+            response.put("price", request.get("price"));
+            response.put("status", "NEW");
+            response.put("createdAt", java.time.LocalDateTime.now());
+
+            log.info("Order created: orderId={}", orderId);
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("Order creation failed: {}", e.getMessage());
+            return ResponseEntity
+                    .status(HttpStatus.BAD_REQUEST)
+                    .body(AckResponse.builder()
+                            .ok(false)
+                            .message("Order creation failed: " + e.getMessage())
+                            .build());
+        }
+    }
+
+    /**
+     * Cancel an order by path variable.
+     *
+     * @param orderId Order ID from path
+     * @return Cancelled order details
+     */
+    @PostMapping("/{orderId}/cancel")
+    public ResponseEntity<?> cancelOrderByPath(@PathVariable String orderId) {
+        log.info("Received cancel order request by path: orderId={}", orderId);
+
+        try {
+            Order cancelledOrder = cancelOrderUseCase.execute(orderId);
+
+            OrderResponse response = toOrderResponse(cancelledOrder);
+            log.info("Order cancelled successfully: orderId={}", orderId);
+
+            return ResponseEntity.ok(response);
+
+        } catch (OrderCancellationException e) {
+            log.warn("Order cancellation failed: orderId={}, reason={}", orderId, e.getMessage());
+            return ResponseEntity
+                    .status(HttpStatus.BAD_REQUEST)
+                    .body(AckResponse.builder()
+                            .ok(false)
+                            .message("Cancellation failed: " + e.getMessage())
+                            .build());
+
+        } catch (IllegalArgumentException e) {
+            log.warn("Order not found: orderId={}", orderId);
+            return ResponseEntity
+                    .status(HttpStatus.NOT_FOUND)
+                    .body(AckResponse.builder()
+                            .ok(false)
+                            .message("Order not found: " + orderId)
+                            .build());
+        }
     }
 
     /**

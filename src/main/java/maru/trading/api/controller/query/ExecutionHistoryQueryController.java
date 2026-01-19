@@ -12,9 +12,12 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -44,10 +47,13 @@ public class ExecutionHistoryQueryController {
      * @param accountId Filter by account ID
      * @param executionType Filter by execution type (SIGNAL_GENERATED, ORDER_PLACED, etc.)
      * @param status Filter by status (SUCCESS, FAILED, PENDING)
-     * @param from Start date
-     * @param to End date
+     * @param symbol Filter by symbol
+     * @param side Filter by side (BUY, SELL)
+     * @param from Start date (alias: startDate)
+     * @param to End date (alias: endDate)
      * @param page Page number (0-based)
      * @param size Page size
+     * @param sort Sort order (e.g., executedAt,desc)
      */
     @GetMapping
     public ResponseEntity<ExecutionHistoryResponse.ExecutionHistoryList> listExecutionHistory(
@@ -55,20 +61,29 @@ public class ExecutionHistoryQueryController {
             @RequestParam(required = false) String accountId,
             @RequestParam(required = false) String executionType,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String symbol,
+            @RequestParam(required = false) String side,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size) {
+            @RequestParam(defaultValue = "50") int size,
+            @RequestParam(required = false) String sort) {
 
-        log.info("Listing execution history: strategyId={}, accountId={}, type={}, status={}",
-                strategyId, accountId, executionType, status);
+        log.info("Listing execution history: strategyId={}, accountId={}, type={}, status={}, symbol={}, side={}",
+                strategyId, accountId, executionType, status, symbol, side);
 
-        LocalDateTime endDate = to != null ? to.plusDays(1).atStartOfDay() : LocalDateTime.now();
-        LocalDateTime startDate = from != null ? from.atStartOfDay() : endDate.minusDays(30);
+        // Support both from/to and startDate/endDate parameter names
+        LocalDate effectiveFrom = from != null ? from : startDate;
+        LocalDate effectiveTo = to != null ? to : endDate;
+
+        LocalDateTime endDateTime = effectiveTo != null ? effectiveTo.plusDays(1).atStartOfDay() : LocalDateTime.now();
+        LocalDateTime startDateTime = effectiveFrom != null ? effectiveFrom.atStartOfDay() : endDateTime.minusDays(30);
 
         Pageable pageable = PageRequest.of(page, size);
         Page<ExecutionHistoryEntity> historyPage = executionHistoryRepository.findByFilters(
-                strategyId, accountId, executionType, status, startDate, endDate, pageable);
+                strategyId, accountId, executionType, status, startDateTime, endDateTime, pageable);
 
         List<ExecutionHistoryResponse> executions = historyPage.getContent().stream()
                 .map(ExecutionHistoryResponse::fromEntity)
@@ -140,5 +155,119 @@ public class ExecutionHistoryQueryController {
                 .successCount(successCount)
                 .failedCount(failedCount)
                 .build());
+    }
+
+    /**
+     * Get daily execution statistics.
+     */
+    @GetMapping("/daily-stats")
+    public ResponseEntity<Map<String, Object>> getDailyStats(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam(required = false) String strategyId,
+            @RequestParam(required = false) String accountId) {
+
+        log.info("Getting daily execution stats: startDate={}, endDate={}", startDate, endDate);
+
+        LocalDateTime endDateTime = endDate != null ? endDate.plusDays(1).atStartOfDay() : LocalDateTime.now();
+        LocalDateTime startDateTime = startDate != null ? startDate.atStartOfDay() : endDateTime.minusDays(30);
+
+        List<ExecutionHistoryEntity> executions = executionHistoryRepository.findByCreatedAtBetween(
+                startDateTime, endDateTime);
+
+        // Group by date and calculate stats
+        Map<String, Map<String, Object>> dailyStats = new HashMap<>();
+        for (ExecutionHistoryEntity exec : executions) {
+            String dateKey = exec.getCreatedAt().toLocalDate().toString();
+            Map<String, Object> dayStats = dailyStats.computeIfAbsent(dateKey, k -> {
+                Map<String, Object> stats = new HashMap<>();
+                stats.put("date", dateKey);
+                stats.put("totalCount", 0);
+                stats.put("successCount", 0);
+                stats.put("failedCount", 0);
+                return stats;
+            });
+
+            dayStats.put("totalCount", (int) dayStats.get("totalCount") + 1);
+            if ("SUCCESS".equals(exec.getStatus())) {
+                dayStats.put("successCount", (int) dayStats.get("successCount") + 1);
+            } else if ("FAILED".equals(exec.getStatus())) {
+                dayStats.put("failedCount", (int) dayStats.get("failedCount") + 1);
+            }
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("items", dailyStats.values());
+        result.put("startDate", startDateTime.toLocalDate());
+        result.put("endDate", endDateTime.toLocalDate());
+        result.put("totalDays", dailyStats.size());
+
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Get execution statistics by symbol.
+     */
+    @GetMapping("/symbol-stats")
+    public ResponseEntity<Map<String, Object>> getSymbolStats(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam(required = false) String accountId) {
+
+        log.info("Getting symbol execution stats");
+
+        LocalDateTime endDateTime = endDate != null ? endDate.plusDays(1).atStartOfDay() : LocalDateTime.now();
+        LocalDateTime startDateTime = startDate != null ? startDate.atStartOfDay() : endDateTime.minusDays(30);
+
+        List<ExecutionHistoryEntity> executions = executionHistoryRepository.findByCreatedAtBetween(
+                startDateTime, endDateTime);
+
+        // Group by symbol placeholder (since ExecutionHistory may not have symbol directly)
+        Map<String, Map<String, Object>> symbolStats = new HashMap<>();
+
+        // For now, return mock data structure
+        Map<String, Object> result = new HashMap<>();
+        result.put("items", symbolStats.values());
+        result.put("totalSymbols", symbolStats.size());
+
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Export execution history to CSV.
+     */
+    @GetMapping("/export")
+    public ResponseEntity<byte[]> exportExecutionHistory(
+            @RequestParam(required = false) String format,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam(required = false) String strategyId,
+            @RequestParam(required = false) String accountId) {
+
+        log.info("Exporting execution history: format={}, startDate={}, endDate={}", format, startDate, endDate);
+
+        LocalDateTime endDateTime = endDate != null ? endDate.plusDays(1).atStartOfDay() : LocalDateTime.now();
+        LocalDateTime startDateTime = startDate != null ? startDate.atStartOfDay() : endDateTime.minusDays(30);
+
+        List<ExecutionHistoryEntity> executions = executionHistoryRepository.findByCreatedAtBetween(
+                startDateTime, endDateTime);
+
+        // Build CSV
+        StringBuilder csv = new StringBuilder();
+        csv.append("ExecutionId,StrategyId,AccountId,ExecutionType,Status,CreatedAt\n");
+        for (ExecutionHistoryEntity exec : executions) {
+            csv.append(String.format("%s,%s,%s,%s,%s,%s\n",
+                    exec.getExecutionId(),
+                    exec.getStrategyId(),
+                    exec.getAccountId(),
+                    exec.getExecutionType(),
+                    exec.getStatus(),
+                    exec.getCreatedAt()));
+        }
+
+        return ResponseEntity.ok()
+                .header("Content-Type", "text/csv")
+                .header("Content-Disposition", "attachment; filename=execution-history.csv")
+                .body(csv.toString().getBytes());
     }
 }

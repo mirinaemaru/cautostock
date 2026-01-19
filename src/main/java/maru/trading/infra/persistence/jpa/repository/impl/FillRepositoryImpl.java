@@ -66,6 +66,13 @@ public class FillRepositoryImpl implements FillRepository {
                 orderId, fillTimestamp, fillPrice, BigDecimal.valueOf(fillQty));
     }
 
+    @Override
+    public List<Fill> findAll() {
+        return jpaRepository.findAll().stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
     // Mapping methods
     private FillEntity toEntity(Fill domain) {
         return FillEntity.builder()

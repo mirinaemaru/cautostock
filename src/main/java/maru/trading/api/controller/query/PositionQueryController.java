@@ -56,6 +56,55 @@ public class PositionQueryController {
 	}
 
 	/**
+	 * 포지션 요약 조회
+	 */
+	@GetMapping("/summary")
+	public ResponseEntity<Map<String, Object>> getPositionSummary(
+			@RequestParam(required = false) String accountId
+	) {
+		log.info("Get position summary: accountId={}", accountId);
+
+		List<PositionEntity> positions;
+		if (accountId != null && !accountId.isEmpty()) {
+			positions = positionRepository.findByAccountId(accountId);
+		} else {
+			positions = positionRepository.findAll();
+		}
+
+		// 보유 중인 포지션만 필터링
+		List<PositionEntity> activePositions = positions.stream()
+				.filter(p -> p.getQty().compareTo(BigDecimal.ZERO) > 0)
+				.toList();
+
+		// 총 평가액 계산
+		BigDecimal totalValue = activePositions.stream()
+				.map(p -> p.getAvgPrice().multiply(p.getQty()))
+				.reduce(BigDecimal.ZERO, BigDecimal::add);
+
+		// 총 실현손익
+		BigDecimal totalRealizedPnl = activePositions.stream()
+				.map(PositionEntity::getRealizedPnl)
+				.reduce(BigDecimal.ZERO, BigDecimal::add);
+
+		// 종목 수
+		long symbolCount = activePositions.stream()
+				.map(PositionEntity::getSymbol)
+				.distinct()
+				.count();
+
+		Map<String, Object> summary = new HashMap<>();
+		summary.put("accountId", accountId);
+		summary.put("totalPositions", activePositions.size());
+		summary.put("totalValue", totalValue);
+		summary.put("totalRealizedPnl", totalRealizedPnl);
+		summary.put("totalUnrealizedPnl", BigDecimal.ZERO); // 현재가 없이는 계산 불가
+		summary.put("symbolCount", symbolCount);
+		summary.put("timestamp", java.time.LocalDateTime.now());
+
+		return ResponseEntity.ok(summary);
+	}
+
+	/**
 	 * 포지션 조회
 	 */
 	@GetMapping("/{positionId}")

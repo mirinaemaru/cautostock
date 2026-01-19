@@ -51,4 +51,9 @@ public interface FillRepository {
             LocalDateTime fillTimestamp,
             java.math.BigDecimal fillPrice,
             int fillQty);
+
+    /**
+     * Find all fills.
+     */
+    List<Fill> findAll();
 }

@@ -87,21 +87,32 @@ public class NotificationAdminController {
      */
     @GetMapping
     public ResponseEntity<NotificationResponse.NotificationList> listNotifications(
-            @RequestParam String accountId,
+            @RequestParam(required = false) String accountId,
+            @RequestParam(required = false) Boolean read,
+            @RequestParam(required = false) String type,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
-        log.info("Listing notifications for account: {}, page: {}, size: {}", accountId, page, size);
+        log.info("Listing notifications: accountId={}, read={}, type={}, page={}, size={}",
+                accountId, read, type, page, size);
 
         Pageable pageable = PageRequest.of(page, size);
-        Page<NotificationEntity> notificationPage = notificationRepository
-                .findByAccountIdOrderByCreatedAtDesc(accountId, pageable);
+        Page<NotificationEntity> notificationPage;
+        long unreadCount;
+
+        if (accountId != null && !accountId.isBlank()) {
+            notificationPage = notificationRepository
+                    .findByAccountIdOrderByCreatedAtDesc(accountId, pageable);
+            unreadCount = notificationRepository.countUnreadByAccountId(accountId);
+        } else {
+            // Return all notifications if no accountId provided
+            notificationPage = notificationRepository.findAll(pageable);
+            unreadCount = notificationRepository.count();
+        }
 
         List<NotificationResponse> notifications = notificationPage.getContent().stream()
                 .map(NotificationResponse::fromEntity)
                 .collect(Collectors.toList());
-
-        long unreadCount = notificationRepository.countUnreadByAccountId(accountId);
 
         return ResponseEntity.ok(NotificationResponse.NotificationList.builder()
                 .notifications(notifications)
@@ -110,6 +121,42 @@ public class NotificationAdminController {
                 .page(page)
                 .pageSize(size)
                 .build());
+    }
+
+    /**
+     * Get notification by ID.
+     */
+    @GetMapping("/{notificationId}")
+    public ResponseEntity<NotificationResponse> getNotification(@PathVariable String notificationId) {
+        log.info("Getting notification: {}", notificationId);
+
+        return notificationRepository.findById(notificationId)
+                .map(entity -> ResponseEntity.ok(NotificationResponse.fromEntity(entity)))
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Get notification count.
+     */
+    @GetMapping("/count")
+    public ResponseEntity<Map<String, Object>> getNotificationCount(
+            @RequestParam(required = false) String accountId) {
+
+        long totalCount;
+        long unreadCount;
+
+        if (accountId != null && !accountId.isBlank()) {
+            totalCount = notificationRepository.countByAccountId(accountId);
+            unreadCount = notificationRepository.countUnreadByAccountId(accountId);
+        } else {
+            totalCount = notificationRepository.count();
+            unreadCount = notificationRepository.countAllUnread();
+        }
+
+        return ResponseEntity.ok(Map.of(
+                "totalCount", totalCount,
+                "unreadCount", unreadCount
+        ));
     }
 
     /**

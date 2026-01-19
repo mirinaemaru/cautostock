@@ -27,6 +27,12 @@ public interface NotificationJpaRepository extends JpaRepository<NotificationEnt
     @Query("SELECT COUNT(n) FROM NotificationEntity n WHERE n.accountId = :accountId AND n.isRead = 'N'")
     long countUnreadByAccountId(@Param("accountId") String accountId);
 
+    @Query("SELECT COUNT(n) FROM NotificationEntity n WHERE n.accountId = :accountId")
+    long countByAccountId(@Param("accountId") String accountId);
+
+    @Query("SELECT COUNT(n) FROM NotificationEntity n WHERE n.isRead = 'N'")
+    long countAllUnread();
+
     @Modifying
     @Query("UPDATE NotificationEntity n SET n.isRead = 'Y', n.readAt = :readAt WHERE n.accountId = :accountId AND n.isRead = 'N'")
     int markAllAsReadByAccountId(@Param("accountId") String accountId, @Param("readAt") LocalDateTime readAt);

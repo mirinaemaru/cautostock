@@ -14,6 +14,11 @@ import java.util.Map;
 
 /**
  * 계좌 잔액 조회 Query Controller
+ *
+ * Endpoints:
+ * - GET /api/v1/query/balance?accountId={accountId} - Get balance by query param
+ * - GET /api/v1/query/balance/{accountId} - Get balance by path variable
+ * - GET /api/v1/query/balance/summary - Get balance summary
  */
 @Slf4j
 @RestController
@@ -24,14 +29,73 @@ public class BalanceQueryController {
     private final PositionJpaRepository positionRepository;
 
     /**
-     * 계좌 잔액 조회
+     * 전체 잔고 요약 조회
+     */
+    @GetMapping("/summary")
+    public ResponseEntity<Map<String, Object>> getBalanceSummary() {
+        log.info("Get balance summary");
+
+        try {
+            // 모든 포지션 조회
+            List<PositionEntity> allPositions = positionRepository.findAll();
+
+            // 총 주식 평가액 계산
+            BigDecimal totalStockValue = allPositions.stream()
+                    .filter(p -> p.getQty().compareTo(BigDecimal.ZERO) > 0)
+                    .map(p -> p.getAvgPrice().multiply(p.getQty()))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            // 총 실현 손익
+            BigDecimal totalRealizedPnl = allPositions.stream()
+                    .map(PositionEntity::getRealizedPnl)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            // 계좌 수
+            long accountCount = allPositions.stream()
+                    .map(PositionEntity::getAccountId)
+                    .distinct()
+                    .count();
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("totalStockValue", totalStockValue);
+            response.put("totalRealizedPnl", totalRealizedPnl);
+            response.put("accountCount", accountCount);
+            response.put("positionCount", allPositions.size());
+            response.put("timestamp", java.time.LocalDateTime.now());
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Failed to get balance summary", e);
+            throw new RuntimeException("Failed to get balance summary", e);
+        }
+    }
+
+    /**
+     * 계좌 잔액 조회 (Path Variable)
+     */
+    @GetMapping("/{accountId}")
+    public ResponseEntity<Map<String, Object>> getAccountBalanceByPath(
+            @PathVariable String accountId
+    ) {
+        log.info("Get account balance by path: accountId={}", accountId);
+        return getBalance(accountId);
+    }
+
+    /**
+     * 계좌 잔액 조회 (Query Parameter)
      */
     @GetMapping
     public ResponseEntity<Map<String, Object>> getAccountBalance(
             @RequestParam(required = true) String accountId
     ) {
         log.info("Get account balance: accountId={}", accountId);
+        return getBalance(accountId);
+    }
 
+    /**
+     * 잔액 조회 공통 로직
+     */
+    private ResponseEntity<Map<String, Object>> getBalance(String accountId) {
         try {
             // 해당 계좌의 포지션 조회
             List<PositionEntity> positions = positionRepository.findByAccountId(accountId);

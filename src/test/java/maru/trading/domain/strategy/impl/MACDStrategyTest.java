@@ -47,17 +47,23 @@ class MACDStrategyTest {
     // ==================== 1. Bullish Crossover Tests ====================
 
     @Test
-    @org.junit.jupiter.api.Disabled("MACD crossover 테스트 데이터 생성이 복잡하여 일단 비활성화. 통합 테스트에서 검증 예정")
     @DisplayName("MACD 상향 돌파 - BUY 시그널 생성")
     void testBullishCrossover_BuySignal() {
         // Given - MACD 라인이 시그널 라인을 상향 돌파
-        List<MarketBar> bars = createBarsWithBullishCrossover();
+        // 짧은 기간 파라미터 사용 (크로스오버 유발을 위해)
+        Map<String, Object> shortParams = new HashMap<>();
+        shortParams.put("fastPeriod", 3);
+        shortParams.put("slowPeriod", 6);
+        shortParams.put("signalPeriod", 3);
+        shortParams.put("ttlSeconds", 300);
+
+        List<MarketBar> bars = createBarsForBullishCrossover();
         StrategyContext context = StrategyContext.builder()
                 .strategyId("STR_001")
                 .symbol("005930")
                 .accountId("ACC_001")
                 .bars(bars)
-                .params(params)
+                .params(shortParams)
                 .timeframe("1m")
                 .build();
 
@@ -77,12 +83,25 @@ class MACDStrategyTest {
     // ==================== 2. Bearish Crossover Tests ====================
 
     @Test
-    @org.junit.jupiter.api.Disabled("MACD crossover 테스트 데이터 생성이 복잡하여 일단 비활성화. 통합 테스트에서 검증 예정")
     @DisplayName("MACD 하향 돌파 - SELL 시그널 생성")
     void testBearishCrossover_SellSignal() {
         // Given - MACD 라인이 시그널 라인을 하향 돌파
-        List<MarketBar> bars = createBarsWithBearishCrossover();
-        StrategyContext context = createContext(bars, params);
+        // 짧은 기간 파라미터 사용 (크로스오버 유발을 위해)
+        Map<String, Object> shortParams = new HashMap<>();
+        shortParams.put("fastPeriod", 3);
+        shortParams.put("slowPeriod", 6);
+        shortParams.put("signalPeriod", 3);
+        shortParams.put("ttlSeconds", 300);
+
+        List<MarketBar> bars = createBarsForBearishCrossover();
+        StrategyContext context = StrategyContext.builder()
+                .strategyId("STR_001")
+                .symbol("005930")
+                .accountId("ACC_001")
+                .bars(bars)
+                .params(shortParams)
+                .timeframe("1m")
+                .build();
 
         // When
         SignalDecision decision = strategy.evaluate(context);
@@ -260,49 +279,78 @@ class MACDStrategyTest {
                 .build();
     }
 
-    private List<MarketBar> createBarsWithBullishCrossover() {
-        // 상승 추세 만들기: MACD가 시그널을 상향 돌파
+    /**
+     * 짧은 기간 파라미터(fast=3, slow=6, signal=3)에 최적화된 Bullish Crossover 데이터
+     * 마지막 바에서 MACD가 Signal을 상향 돌파
+     *
+     * 데이터: [100, 100, 100, 100, 100, 100, 50, 50, 50, 51]
+     * - Prev: MACD=-11.97 <= Signal=-9.94
+     * - Curr: MACD=-9.68 > Signal=-9.81
+     */
+    private List<MarketBar> createBarsForBullishCrossover() {
         List<MarketBar> bars = new ArrayList<>();
         LocalDateTime time = LocalDateTime.now();
 
-        // 초기 하락 추세 (35개) - MACD를 음수로
-        for (int i = 0; i < 35; i++) {
-            bars.add(createBar(time.minusMinutes(60 - i), 100 - i * 1.0));
+        // 안정 구간 (6개)
+        for (int i = 0; i < 6; i++) {
+            bars.add(createBar(time.minusMinutes(10 - i), 100));
         }
 
-        // 안정 (5개)
-        for (int i = 0; i < 5; i++) {
-            bars.add(createBar(time.minusMinutes(25 - i), 65));
+        // 바닥 유지 (3개)
+        for (int i = 0; i < 3; i++) {
+            bars.add(createBar(time.minusMinutes(4 - i), 50));
         }
 
-        // 강한 상승 전환 (20개) - MACD 상향 돌파 유도
-        for (int i = 0; i < 20; i++) {
-            bars.add(createBar(time.minusMinutes(20 - i), 65 + i * 3.0));
-        }
+        // 마지막 바: 살짝 상승으로 크로스오버 발생
+        bars.add(createBar(time.minusMinutes(1), 51));
 
         return bars;
     }
 
-    private List<MarketBar> createBarsWithBearishCrossover() {
-        // 하락 추세 만들기: MACD가 시그널을 하향 돌파
+    /**
+     * 짧은 기간 파라미터(fast=3, slow=6, signal=3)에 최적화된 Bearish Crossover 데이터
+     * 마지막 바에서 MACD가 Signal을 하향 돌파
+     *
+     * 데이터: [100, 100, 100, 100, 100, 100, 150, 150, 150, 100]
+     * - Prev: MACD=11.97 >= Signal=9.94
+     * - Curr: MACD=-0.82 < Signal=4.56
+     */
+    private List<MarketBar> createBarsForBearishCrossover() {
         List<MarketBar> bars = new ArrayList<>();
         LocalDateTime time = LocalDateTime.now();
 
-        // 초기 상승 추세 (35개) - MACD를 양수로
-        for (int i = 0; i < 35; i++) {
-            bars.add(createBar(time.minusMinutes(60 - i), 50 + i * 1.0));
+        // 안정 구간 (6개)
+        for (int i = 0; i < 6; i++) {
+            bars.add(createBar(time.minusMinutes(10 - i), 100));
         }
 
-        // 안정 (5개)
-        for (int i = 0; i < 5; i++) {
-            bars.add(createBar(time.minusMinutes(25 - i), 85));
+        // 고점 유지 (3개)
+        for (int i = 0; i < 3; i++) {
+            bars.add(createBar(time.minusMinutes(4 - i), 150));
         }
 
-        // 강한 하락 전환 (20개) - MACD 하향 돌파 유도
-        for (int i = 0; i < 20; i++) {
-            bars.add(createBar(time.minusMinutes(20 - i), 85 - i * 3.0));
-        }
+        // 마지막 바: 급락으로 크로스오버 발생
+        bars.add(createBar(time.minusMinutes(1), 100));
 
+        return bars;
+    }
+
+    // 기존 테스트용 데이터 (표준 파라미터 12/26/9 용)
+    private List<MarketBar> createBarsWithBullishCrossover() {
+        List<MarketBar> bars = new ArrayList<>();
+        LocalDateTime time = LocalDateTime.now();
+        for (int i = 0; i < 40; i++) {
+            bars.add(createBar(time.minusMinutes(40 - i), 100));
+        }
+        return bars;
+    }
+
+    private List<MarketBar> createBarsWithBearishCrossover() {
+        List<MarketBar> bars = new ArrayList<>();
+        LocalDateTime time = LocalDateTime.now();
+        for (int i = 0; i < 40; i++) {
+            bars.add(createBar(time.minusMinutes(40 - i), 100));
+        }
         return bars;
     }
 

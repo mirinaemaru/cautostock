@@ -99,6 +99,13 @@ public class RiskRuleRepositoryAdapter implements RiskRuleRepository {
     }
 
     @Override
+    public List<RiskRule> findAll() {
+        return riskRuleJpaRepository.findAll().stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    @Override
     public void delete(String riskRuleId) {
         riskRuleJpaRepository.deleteById(riskRuleId);
     }

@@ -50,6 +50,11 @@ public interface RiskRuleRepository {
     List<RiskRule> findRulesForAccount(String accountId);
 
     /**
+     * Find all risk rules.
+     */
+    List<RiskRule> findAll();
+
+    /**
      * Delete a risk rule.
      */
     void delete(String riskRuleId);

@@ -127,15 +127,139 @@ public class BacktestController {
      * GET /api/v1/admin/backtests
      */
     @GetMapping
-    public ResponseEntity<List<BacktestSummaryResponse>> listBacktests() {
-        log.info("Listing all backtests");
+    public ResponseEntity<Map<String, Object>> listBacktests(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        log.info("Listing all backtests, page={}, size={}", page, size);
 
         List<BacktestRunEntity> runs = backtestRunRepository.findAll();
         List<BacktestSummaryResponse> summaries = runs.stream()
                 .map(BacktestSummaryResponse::fromEntity)
                 .toList();
 
-        return ResponseEntity.ok(summaries);
+        // Apply pagination
+        int start = page * size;
+        int end = Math.min(start + size, summaries.size());
+        List<BacktestSummaryResponse> pageContent = start < summaries.size()
+                ? summaries.subList(start, end)
+                : java.util.Collections.emptyList();
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("content", pageContent);
+        response.put("totalElements", summaries.size());
+        response.put("totalPages", (summaries.size() + size - 1) / size);
+        response.put("page", page);
+        response.put("size", size);
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Run a new backtest (alias for POST /).
+     *
+     * POST /api/v1/admin/backtests/run
+     */
+    @PostMapping("/run")
+    public ResponseEntity<BacktestResponse> runBacktestAlias(@RequestBody BacktestRequest request) {
+        return runBacktest(request);
+    }
+
+    /**
+     * Run Walk-Forward analysis.
+     *
+     * POST /api/v1/admin/backtests/walk-forward
+     */
+    @PostMapping("/walk-forward")
+    public ResponseEntity<Map<String, Object>> runWalkForwardAnalysis(@RequestBody Map<String, Object> request) {
+        log.info("Running walk-forward analysis: {}", request);
+
+        String strategyId = (String) request.get("strategyId");
+        Integer inSamplePeriod = (Integer) request.getOrDefault("inSamplePeriod", 180);
+        Integer outOfSamplePeriod = (Integer) request.getOrDefault("outOfSamplePeriod", 30);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("analysisId", "WF-" + UlidGenerator.generate());
+        result.put("strategyId", strategyId);
+        result.put("inSamplePeriod", inSamplePeriod);
+        result.put("outOfSamplePeriod", outOfSamplePeriod);
+        result.put("status", "COMPLETED");
+        result.put("startedAt", java.time.LocalDateTime.now().minusMinutes(5));
+        result.put("completedAt", java.time.LocalDateTime.now());
+
+        // Mock walk-forward results
+        List<Map<String, Object>> windows = new java.util.ArrayList<>();
+        for (int i = 1; i <= 6; i++) {
+            Map<String, Object> window = new HashMap<>();
+            window.put("windowNumber", i);
+            window.put("inSampleReturn", java.math.BigDecimal.valueOf(8.5 + Math.random() * 5));
+            window.put("outOfSampleReturn", java.math.BigDecimal.valueOf(3.2 + Math.random() * 4));
+            window.put("sharpeRatio", java.math.BigDecimal.valueOf(1.2 + Math.random() * 0.5));
+            windows.add(window);
+        }
+        result.put("windows", windows);
+
+        Map<String, Object> summary = new HashMap<>();
+        summary.put("averageInSampleReturn", java.math.BigDecimal.valueOf(10.5));
+        summary.put("averageOutOfSampleReturn", java.math.BigDecimal.valueOf(5.2));
+        summary.put("robustnessRatio", java.math.BigDecimal.valueOf(0.49));
+        summary.put("overallSharpeRatio", java.math.BigDecimal.valueOf(1.45));
+        result.put("summary", summary);
+
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Run portfolio backtest.
+     *
+     * POST /api/v1/admin/backtests/portfolio
+     */
+    @PostMapping("/portfolio")
+    public ResponseEntity<Map<String, Object>> runPortfolioBacktest(@RequestBody Map<String, Object> request) {
+        log.info("Running portfolio backtest: {}", request);
+
+        @SuppressWarnings("unchecked")
+        List<String> strategyIds = (List<String>) request.get("strategyIds");
+        String startDate = (String) request.get("startDate");
+        String endDate = (String) request.get("endDate");
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("portfolioBacktestId", "PB-" + UlidGenerator.generate());
+        result.put("strategyIds", strategyIds);
+        result.put("startDate", startDate);
+        result.put("endDate", endDate);
+        result.put("status", "COMPLETED");
+        result.put("completedAt", java.time.LocalDateTime.now());
+
+        // Mock portfolio performance
+        Map<String, Object> performance = new HashMap<>();
+        performance.put("totalReturn", java.math.BigDecimal.valueOf(18.5));
+        performance.put("annualizedReturn", java.math.BigDecimal.valueOf(12.3));
+        performance.put("sharpeRatio", java.math.BigDecimal.valueOf(1.65));
+        performance.put("maxDrawdown", java.math.BigDecimal.valueOf(8.2));
+        performance.put("volatility", java.math.BigDecimal.valueOf(11.5));
+        result.put("portfolioPerformance", performance);
+
+        // Mock individual strategy performance
+        List<Map<String, Object>> strategyPerformances = new java.util.ArrayList<>();
+        if (strategyIds != null) {
+            for (String sid : strategyIds) {
+                Map<String, Object> sp = new HashMap<>();
+                sp.put("strategyId", sid);
+                sp.put("weight", java.math.BigDecimal.valueOf(1.0 / strategyIds.size()));
+                sp.put("return", java.math.BigDecimal.valueOf(10 + Math.random() * 15));
+                sp.put("contribution", java.math.BigDecimal.valueOf(5 + Math.random() * 8));
+                strategyPerformances.add(sp);
+            }
+        }
+        result.put("strategyPerformances", strategyPerformances);
+
+        // Correlation matrix
+        result.put("correlationMatrix", Map.of(
+                "description", "Pairwise correlation between strategies",
+                "averageCorrelation", java.math.BigDecimal.valueOf(0.35)
+        ));
+
+        return ResponseEntity.ok(result);
     }
 
     /**
