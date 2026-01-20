@@ -29,4 +29,10 @@ public interface AccountJpaRepository extends JpaRepository<AccountEntity, Strin
 
 	@Query("SELECT a FROM AccountEntity a WHERE a.accountId = :accountId AND a.delyn = 'N'")
 	Optional<AccountEntity> findByIdAndNotDeleted(String accountId);
+
+	/**
+	 * 첫 번째 ACTIVE 계정 조회 (데모용 기본 계정)
+	 */
+	@Query("SELECT a FROM AccountEntity a WHERE a.status = 'ACTIVE' AND a.delyn = 'N' ORDER BY a.createdAt ASC LIMIT 1")
+	Optional<AccountEntity> findFirstActiveAccount();
 }

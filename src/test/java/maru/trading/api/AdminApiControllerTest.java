@@ -9,8 +9,13 @@ import maru.trading.application.ports.broker.BrokerClient;
 import maru.trading.domain.order.Side;
 import maru.trading.domain.risk.KillSwitchStatus;
 import maru.trading.infra.config.UlidGenerator;
+import maru.trading.domain.shared.Environment;
+import maru.trading.infra.persistence.jpa.entity.AccountEntity;
 import maru.trading.infra.persistence.jpa.entity.RiskStateEntity;
+import maru.trading.infra.persistence.jpa.entity.StrategyEntity;
+import maru.trading.infra.persistence.jpa.repository.AccountJpaRepository;
 import maru.trading.infra.persistence.jpa.repository.RiskStateJpaRepository;
+import maru.trading.infra.persistence.jpa.repository.StrategyJpaRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -61,14 +66,52 @@ class AdminApiControllerTest {
     @Autowired
     private RiskStateJpaRepository riskStateRepository;
 
+    @Autowired
+    private AccountJpaRepository accountRepository;
+
+    @Autowired
+    private StrategyJpaRepository strategyRepository;
+
     @MockBean
     private BrokerClient brokerClient;
 
     private String accountId;
+    private String strategyId;
 
     @BeforeEach
     void setUp() {
         accountId = "ACC_API_001";
+        strategyId = "STR_API_001";
+
+        // 테스트용 Account 생성
+        if (!accountRepository.existsById(accountId)) {
+            AccountEntity account = AccountEntity.builder()
+                    .accountId(accountId)
+                    .broker("KIS")
+                    .environment(Environment.PAPER)
+                    .cano("12345678")
+                    .acntPrdtCd("01")
+                    .status(maru.trading.domain.account.AccountStatus.ACTIVE)
+                    .alias("Test Account")
+                    .delyn("N")
+                    .build();
+            accountRepository.save(account);
+        }
+
+        // 테스트용 Strategy 생성
+        if (!strategyRepository.existsById(strategyId)) {
+            StrategyEntity strategy = StrategyEntity.builder()
+                    .strategyId(strategyId)
+                    .name("TEST_STRATEGY_API")
+                    .description("Test strategy for API tests")
+                    .status("ACTIVE")
+                    .mode(Environment.PAPER)
+                    .activeVersionId("VER_API_001")
+                    .delyn("N")
+                    .build();
+            strategyRepository.save(strategy);
+        }
+
         given(brokerClient.placeOrder(any()))
                 .willReturn(BrokerAck.success("BROKER-API-TEST"));
     }
@@ -216,7 +259,7 @@ class AdminApiControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.ok").value(true))
-                .andExpect(jsonPath("$.message").value("Signal processed successfully"));
+                .andExpect(jsonPath("$.message").value("Signal created and processing"));
     }
 
     @Test
