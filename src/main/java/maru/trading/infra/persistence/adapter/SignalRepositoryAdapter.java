@@ -7,6 +7,7 @@ import maru.trading.infra.config.UlidGenerator;
 import maru.trading.infra.persistence.jpa.entity.SignalEntity;
 import maru.trading.infra.persistence.jpa.repository.SignalJpaRepository;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -28,6 +29,7 @@ public class SignalRepositoryAdapter implements SignalRepository {
     }
 
     @Override
+    @Transactional
     public Signal save(Signal signal) {
         if (signal == null) {
             throw new IllegalArgumentException("Signal cannot be null");
