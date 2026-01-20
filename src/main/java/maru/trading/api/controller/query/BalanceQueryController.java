@@ -2,7 +2,12 @@ package maru.trading.api.controller.query;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import maru.trading.broker.kis.api.KisApiException;
+import maru.trading.broker.kis.api.KisBalanceApiClient;
+import maru.trading.broker.kis.dto.KisBalanceResponse;
+import maru.trading.infra.persistence.jpa.entity.AccountEntity;
 import maru.trading.infra.persistence.jpa.entity.PositionEntity;
+import maru.trading.infra.persistence.jpa.repository.AccountJpaRepository;
 import maru.trading.infra.persistence.jpa.repository.PositionJpaRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -11,6 +16,7 @@ import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * 계좌 잔액 조회 Query Controller
@@ -27,6 +33,8 @@ import java.util.Map;
 public class BalanceQueryController {
 
     private final PositionJpaRepository positionRepository;
+    private final AccountJpaRepository accountRepository;
+    private final KisBalanceApiClient kisBalanceApiClient;
 
     /**
      * 전체 잔고 요약 조회
@@ -118,8 +126,8 @@ public class BalanceQueryController {
             // 미실현 손익 계산 (임시로 0으로 설정 - 실제로는 현재가 필요)
             BigDecimal totalUnrealizedPnl = BigDecimal.ZERO;
 
-            // 현금 잔고 (임시로 1,000,000원으로 설정 - 실제로는 KIS API 호출 필요)
-            BigDecimal cashBalance = new BigDecimal("1000000");
+            // KIS API를 통한 실제 현금 잔고 조회
+            BigDecimal cashBalance = fetchCashBalanceFromKis(accountId);
 
             // 총 자산 = 현금 + 주식 평가액
             BigDecimal totalAssets = cashBalance.add(stockValue);
@@ -144,6 +152,56 @@ public class BalanceQueryController {
         } catch (Exception e) {
             log.error("Failed to get account balance for accountId: {}", accountId, e);
             throw new RuntimeException("Failed to calculate account balance", e);
+        }
+    }
+
+    /**
+     * KIS API를 통해 실제 현금 잔고 조회
+     *
+     * @param accountId 계좌 ID
+     * @return 현금 잔고 (조회 실패 시 0원 반환)
+     */
+    private BigDecimal fetchCashBalanceFromKis(String accountId) {
+        try {
+            // 계좌 정보 조회
+            Optional<AccountEntity> accountOpt = accountRepository.findByIdAndNotDeleted(accountId);
+
+            if (accountOpt.isEmpty()) {
+                log.warn("[Balance] Account not found or deleted: accountId={}", accountId);
+                return BigDecimal.ZERO; // 에러 시 0원
+            }
+
+            AccountEntity account = accountOpt.get();
+
+            // KIS API 호출 - PAPER와 LIVE 모두 실제 API 호출
+            log.info("[Balance] Calling KIS API: accountId={}, environment={}, cano={}, acntPrdtCd={}",
+                    accountId, account.getEnvironment(), account.getCano(), account.getAcntPrdtCd());
+
+            KisBalanceResponse balanceResponse = kisBalanceApiClient.getBalance(
+                    account.getCano(),
+                    account.getAcntPrdtCd(),
+                    account.getEnvironment()
+            );
+
+            if (balanceResponse != null && balanceResponse.isSuccess()) {
+                BigDecimal cashBalance = balanceResponse.getCashBalance();
+                log.info("[Balance] KIS API success: accountId={}, cashBalance={}", accountId, cashBalance);
+                return cashBalance;
+            } else {
+                log.warn("[Balance] KIS API returned failure response: accountId={}, rtCd={}, msg={}",
+                        accountId,
+                        balanceResponse != null ? balanceResponse.getRtCd() : "null",
+                        balanceResponse != null ? balanceResponse.getMsg1() : "null");
+                return BigDecimal.ZERO; // 에러 시 0원
+            }
+
+        } catch (KisApiException e) {
+            log.error("[Balance] KIS API error: accountId={}, errorType={}, message={}",
+                    accountId, e.getErrorType(), e.getMessage());
+            return BigDecimal.ZERO; // 에러 시 0원
+        } catch (Exception e) {
+            log.error("[Balance] Unexpected error while fetching KIS balance: accountId={}", accountId, e);
+            return BigDecimal.ZERO; // 에러 시 0원
         }
     }
 }

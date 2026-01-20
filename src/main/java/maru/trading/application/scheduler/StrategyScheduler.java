@@ -11,7 +11,11 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Strategy scheduler.
@@ -21,6 +25,8 @@ import java.util.List;
  *
  * Can be disabled via application property:
  * trading.scheduler.strategy.enabled=false
+ *
+ * Also supports runtime enable/disable via setEnabled() method.
  */
 @Service
 @ConditionalOnProperty(
@@ -40,6 +46,13 @@ public class StrategyScheduler {
     private final StrategySymbolJpaRepository strategySymbolRepository;
     private final ExecuteStrategyUseCase executeStrategyUseCase;
 
+    // Runtime state management
+    private final AtomicBoolean enabled = new AtomicBoolean(true);
+    private final AtomicReference<LocalDateTime> lastExecutionTime = new AtomicReference<>();
+    private final AtomicInteger executionCount = new AtomicInteger(0);
+    private final AtomicInteger successCount = new AtomicInteger(0);
+    private final AtomicInteger errorCount = new AtomicInteger(0);
+
     public StrategyScheduler(
             StrategyRepository strategyRepository,
             StrategySymbolJpaRepository strategySymbolRepository,
@@ -48,6 +61,65 @@ public class StrategyScheduler {
         this.strategySymbolRepository = strategySymbolRepository;
         this.executeStrategyUseCase = executeStrategyUseCase;
     }
+
+    /**
+     * Enable or disable the scheduler at runtime.
+     *
+     * @param enabled true to enable, false to disable
+     */
+    public void setEnabled(boolean enabled) {
+        boolean previousState = this.enabled.getAndSet(enabled);
+        if (previousState != enabled) {
+            log.info("Strategy scheduler {} (was {})",
+                    enabled ? "ENABLED" : "DISABLED",
+                    previousState ? "enabled" : "disabled");
+        }
+    }
+
+    /**
+     * Check if scheduler is currently enabled.
+     *
+     * @return true if enabled
+     */
+    public boolean isEnabled() {
+        return enabled.get();
+    }
+
+    /**
+     * Get scheduler status information.
+     *
+     * @return SchedulerStatus with current state
+     */
+    public SchedulerStatus getStatus() {
+        return new SchedulerStatus(
+                enabled.get(),
+                lastExecutionTime.get(),
+                executionCount.get(),
+                successCount.get(),
+                errorCount.get()
+        );
+    }
+
+    /**
+     * Reset scheduler statistics.
+     */
+    public void resetStatistics() {
+        executionCount.set(0);
+        successCount.set(0);
+        errorCount.set(0);
+        log.info("Scheduler statistics reset");
+    }
+
+    /**
+     * Status record for scheduler state.
+     */
+    public record SchedulerStatus(
+            boolean enabled,
+            LocalDateTime lastExecutionTime,
+            int executionCount,
+            int successCount,
+            int errorCount
+    ) {}
 
     /**
      * Execute strategies every minute.
@@ -61,6 +133,15 @@ public class StrategyScheduler {
      */
     @Scheduled(cron = "0 * * * * *")
     public void executeStrategies() {
+        // Check if scheduler is enabled at runtime
+        if (!enabled.get()) {
+            log.debug("StrategyScheduler: Scheduler is disabled, skipping execution");
+            return;
+        }
+
+        executionCount.incrementAndGet();
+        lastExecutionTime.set(LocalDateTime.now());
+
         try {
             log.info("StrategyScheduler: Starting scheduled execution");
 
@@ -69,10 +150,14 @@ public class StrategyScheduler {
 
             if (activeStrategies.isEmpty()) {
                 log.debug("No active strategies found, skipping execution");
+                successCount.incrementAndGet();
                 return;
             }
 
             log.info("Found {} active strategies to execute", activeStrategies.size());
+
+            int strategySuccessCount = 0;
+            int strategyErrorCount = 0;
 
             // Execute each strategy
             for (Strategy strategy : activeStrategies) {
@@ -93,6 +178,7 @@ public class StrategyScheduler {
                                 DEFAULT_SYMBOL,
                                 DEFAULT_ACCOUNT_ID
                         );
+                        strategySuccessCount++;
                     } else {
                         // Execute strategy for each configured symbol
                         for (StrategySymbolEntity mapping : strategySymbols) {
@@ -105,10 +191,12 @@ public class StrategyScheduler {
                                         mapping.getSymbol(),
                                         mapping.getAccountId()
                                 );
+                                strategySuccessCount++;
 
                             } catch (Exception e) {
                                 log.error("Error executing strategy {} for symbol {}: {}",
                                         strategy.getStrategyId(), mapping.getSymbol(), e.getMessage());
+                                strategyErrorCount++;
                                 // Continue with next symbol even if one fails
                             }
                         }
@@ -117,14 +205,23 @@ public class StrategyScheduler {
                 } catch (Exception e) {
                     log.error("Error executing strategy: id={}, name={}",
                             strategy.getStrategyId(), strategy.getName(), e);
+                    strategyErrorCount++;
                     // Continue with next strategy even if one fails
                 }
             }
 
-            log.info("StrategyScheduler: Completed scheduled execution");
+            if (strategyErrorCount == 0) {
+                successCount.incrementAndGet();
+            } else {
+                errorCount.incrementAndGet();
+            }
+
+            log.info("StrategyScheduler: Completed scheduled execution (success={}, errors={})",
+                    strategySuccessCount, strategyErrorCount);
 
         } catch (Exception e) {
             log.error("Error in strategy scheduler", e);
+            errorCount.incrementAndGet();
         }
     }
 
