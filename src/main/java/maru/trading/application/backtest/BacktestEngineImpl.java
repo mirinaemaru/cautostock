@@ -11,8 +11,8 @@ import maru.trading.domain.signal.Signal;
 import maru.trading.domain.signal.SignalDecision;
 import maru.trading.domain.signal.SignalType;
 import maru.trading.domain.strategy.StrategyContext;
-import maru.trading.domain.strategy.impl.MACrossoverStrategy;
-import maru.trading.domain.strategy.impl.RSIStrategy;
+import maru.trading.domain.strategy.StrategyEngine;
+import maru.trading.domain.strategy.StrategyFactory;
 import maru.trading.infra.config.UlidGenerator;
 import maru.trading.infra.persistence.jpa.entity.BacktestRunEntity;
 import maru.trading.infra.persistence.jpa.entity.BacktestTradeEntity;
@@ -24,12 +24,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import maru.trading.infra.async.BacktestJobExecutor;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -49,6 +52,7 @@ public class BacktestEngineImpl implements BacktestEngine {
     private final HistoricalBarJpaRepository historicalBarRepository;
     private final BacktestRunJpaRepository backtestRunRepository;
     private final BacktestTradeJpaRepository backtestTradeRepository;
+    private final BacktestJobExecutor jobExecutor;
 
     // Track running backtests (for async support)
     private final Map<String, String> runningBacktests = new ConcurrentHashMap<>();
@@ -59,13 +63,15 @@ public class BacktestEngineImpl implements BacktestEngine {
             PerformanceAnalyzer performanceAnalyzer,
             HistoricalBarJpaRepository historicalBarRepository,
             BacktestRunJpaRepository backtestRunRepository,
-            BacktestTradeJpaRepository backtestTradeRepository) {
+            BacktestTradeJpaRepository backtestTradeRepository,
+            BacktestJobExecutor jobExecutor) {
         this.dataReplayEngine = dataReplayEngine;
         this.virtualBroker = virtualBroker;
         this.performanceAnalyzer = performanceAnalyzer;
         this.historicalBarRepository = historicalBarRepository;
         this.backtestRunRepository = backtestRunRepository;
         this.backtestTradeRepository = backtestTradeRepository;
+        this.jobExecutor = jobExecutor;
     }
 
     @Override
@@ -122,8 +128,13 @@ public class BacktestEngineImpl implements BacktestEngine {
         virtualBroker.setCommission(config.getCommission());
         virtualBroker.setSlippage(config.getSlippage());
 
-        // Create strategy
-        MACrossoverStrategy strategy = new MACrossoverStrategy();
+        // Create strategy using factory (dynamic strategy selection)
+        String strategyType = config.getStrategyType();
+        if (strategyType == null || strategyType.isBlank()) {
+            strategyType = "MA_CROSSOVER"; // Default strategy
+        }
+        log.info("Creating strategy: {}", strategyType);
+        StrategyEngine strategy = StrategyFactory.createStrategy(strategyType);
 
         // Result collectors
         List<Signal> allSignals = new ArrayList<>();
@@ -459,7 +470,202 @@ public class BacktestEngineImpl implements BacktestEngine {
 
     @Override
     public void cancel(String backtestId) {
+        // Try to cancel via job executor first
+        if (jobExecutor != null && jobExecutor.cancel(backtestId)) {
+            log.info("Backtest job {} cancelled via executor", backtestId);
+        }
         runningBacktests.put(backtestId, "CANCELLED");
         log.info("Backtest {} cancelled", backtestId);
+    }
+
+    @Override
+    public String runAsync(BacktestConfig config) {
+        log.info("Submitting async backtest for strategy: {}", config.getStrategyId());
+
+        return jobExecutor.submit(config, (cfg, progressCallback) -> {
+            return executeBacktestWithProgress(cfg, progressCallback);
+        });
+    }
+
+    @Override
+    public CompletableFuture<BacktestResult> runAsyncWithFuture(BacktestConfig config) {
+        String jobId = runAsync(config);
+
+        return CompletableFuture.supplyAsync(() -> {
+            // Poll until completion
+            while (true) {
+                BacktestProgress progress = jobExecutor.getProgress(jobId);
+                if (progress != null && progress.isDone()) {
+                    if (progress.isSuccess()) {
+                        return jobExecutor.getResult(jobId);
+                    } else {
+                        throw new RuntimeException("Backtest failed: " + progress.getErrorMessage());
+                    }
+                }
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("Interrupted while waiting for backtest", e);
+                }
+            }
+        });
+    }
+
+    @Override
+    public BacktestProgress getProgress(String jobId) {
+        return jobExecutor.getProgress(jobId);
+    }
+
+    @Override
+    public BacktestResult getResult(String jobId) {
+        return jobExecutor.getResult(jobId);
+    }
+
+    /**
+     * Execute backtest with progress callback for async execution.
+     */
+    private BacktestResult executeBacktestWithProgress(BacktestConfig config,
+                                                        BacktestJobExecutor.ProgressCallback progressCallback) {
+        LocalDateTime startTime = LocalDateTime.now();
+
+        // Initialize components
+        progressCallback.onProgress(5, "Loading data", 0, 0);
+        dataReplayEngine.loadData(config);
+        int totalBars = dataReplayEngine.getTotalBars();
+
+        progressCallback.onProgress(10, "Initializing broker", totalBars, 0);
+        virtualBroker.reset(config.getInitialCapital());
+        virtualBroker.setCommission(config.getCommission());
+        virtualBroker.setSlippage(config.getSlippage());
+
+        // Create strategy
+        String strategyType = config.getStrategyType();
+        if (strategyType == null || strategyType.isBlank()) {
+            strategyType = "MA_CROSSOVER";
+        }
+        StrategyEngine strategy = StrategyFactory.createStrategy(strategyType);
+
+        // Result collectors
+        List<Signal> allSignals = new ArrayList<>();
+        List<Order> allOrders = new ArrayList<>();
+        List<Fill> allFills = new ArrayList<>();
+        List<BacktestTrade> allTrades = new ArrayList<>();
+        Map<String, BacktestTrade> openPositions = new HashMap<>();
+        List<MarketBar> barBuffer = new ArrayList<>();
+
+        // Replay data
+        int barCount = 0;
+        int lastProgressPercent = 10;
+
+        while (dataReplayEngine.hasNext()) {
+            HistoricalBarEntity barEntity = dataReplayEngine.next();
+            barCount++;
+
+            // Update progress periodically
+            if (totalBars > 0 && barCount % 100 == 0) {
+                int progressPercent = 10 + (int) ((barCount * 80.0) / totalBars);
+                if (progressPercent != lastProgressPercent) {
+                    progressCallback.onProgress(progressPercent, "Processing bars", totalBars, barCount);
+                    lastProgressPercent = progressPercent;
+                }
+            }
+
+            MarketBar bar = convertToMarketBar(barEntity);
+            barBuffer.add(bar);
+
+            if (barBuffer.size() >= 21) {
+                StrategyContext context = StrategyContext.builder()
+                        .strategyId(config.getStrategyId())
+                        .symbol(barEntity.getSymbol())
+                        .accountId("BACKTEST_ACCOUNT")
+                        .bars(new ArrayList<>(barBuffer))
+                        .params(config.getStrategyParams())
+                        .timeframe(config.getTimeframe())
+                        .build();
+
+                SignalDecision decision = strategy.evaluate(context);
+                if (decision != null && decision.getSignalType() != SignalType.HOLD) {
+                    Signal signal = Signal.builder()
+                            .signalId(UlidGenerator.generate())
+                            .strategyId(config.getStrategyId())
+                            .accountId("BACKTEST_ACCOUNT")
+                            .symbol(barEntity.getSymbol())
+                            .signalType(decision.getSignalType())
+                            .targetType("QTY")
+                            .targetValue(decision.getTargetValue())
+                            .reason(decision.getReason())
+                            .ttlSeconds(decision.getTtlSeconds())
+                            .build();
+
+                    allSignals.add(signal);
+                    Order order = convertSignalToOrder(signal, bar, config);
+                    allOrders.add(order);
+                    virtualBroker.submitOrder(order);
+                }
+
+                if (barBuffer.size() > 100) {
+                    barBuffer.remove(0);
+                }
+            }
+
+            List<Fill> fills = virtualBroker.processBar(barEntity);
+            allFills.addAll(fills);
+
+            for (Fill fill : fills) {
+                processFill(fill, openPositions, allTrades, config);
+            }
+        }
+
+        progressCallback.onProgress(90, "Calculating metrics", totalBars, barCount);
+
+        LocalDateTime endTime = LocalDateTime.now();
+        BigDecimal finalCapital = virtualBroker.getCashBalance();
+        BigDecimal totalReturn = calculateTotalReturn(config.getInitialCapital(), finalCapital);
+
+        BacktestResult result = BacktestResult.builder()
+                .backtestId(config.getBacktestId())
+                .config(config)
+                .startTime(startTime)
+                .endTime(endTime)
+                .signals(allSignals)
+                .orders(allOrders)
+                .fills(allFills)
+                .trades(allTrades)
+                .finalCapital(finalCapital)
+                .totalReturn(totalReturn)
+                .build();
+
+        // Calculate metrics
+        PerformanceMetrics performanceMetrics = performanceAnalyzer.analyze(result);
+        RiskMetrics riskMetrics = performanceAnalyzer.analyzeRisk(result);
+        EquityCurve equityCurve = performanceAnalyzer.generateEquityCurve(result);
+
+        progressCallback.onProgress(95, "Saving results", totalBars, barCount);
+
+        result = BacktestResult.builder()
+                .backtestId(result.getBacktestId())
+                .config(result.getConfig())
+                .startTime(result.getStartTime())
+                .endTime(result.getEndTime())
+                .signals(result.getSignals())
+                .orders(result.getOrders())
+                .fills(result.getFills())
+                .trades(result.getTrades())
+                .finalCapital(result.getFinalCapital())
+                .totalReturn(result.getTotalReturn())
+                .performanceMetrics(performanceMetrics)
+                .riskMetrics(riskMetrics)
+                .equityCurve(equityCurve)
+                .build();
+
+        // Save to DB
+        BacktestRunEntity runEntity = createBacktestRun(config);
+        updateBacktestRun(runEntity, result);
+        saveTrades(config.getBacktestId(), result.getTrades());
+
+        progressCallback.onProgress(100, "Completed", totalBars, barCount);
+
+        return result;
     }
 }

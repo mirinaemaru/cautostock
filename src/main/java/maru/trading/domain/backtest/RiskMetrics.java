@@ -93,4 +93,65 @@ public class RiskMetrics {
      * Estimated probability based on win rate and risk/reward.
      */
     private BigDecimal riskOfRuin;
+
+    // ========== Advanced Risk Metrics ==========
+
+    /**
+     * Omega ratio - ratio of gains to losses relative to a threshold return.
+     * Formula: Sum of returns above threshold / Sum of returns below threshold
+     * Higher is better. Value > 1 indicates more gains than losses.
+     * Threshold is typically 0 (risk-free rate).
+     */
+    private BigDecimal omegaRatio;
+
+    /**
+     * Return skewness - asymmetry of the return distribution.
+     * Positive skew: more large gains than large losses (favorable)
+     * Negative skew: more large losses than large gains (unfavorable)
+     * Normal distribution has skewness of 0.
+     */
+    private BigDecimal skewness;
+
+    /**
+     * Return kurtosis - "tailedness" of the return distribution.
+     * High kurtosis (>3): heavy tails, more extreme returns
+     * Low kurtosis (<3): light tails, fewer extreme returns
+     * Normal distribution has kurtosis of 3 (excess kurtosis = 0).
+     */
+    private BigDecimal kurtosis;
+
+    /**
+     * Excess kurtosis (kurtosis - 3).
+     * Measures deviation from normal distribution.
+     * Positive: heavier tails (more extreme events)
+     * Negative: lighter tails (fewer extreme events)
+     */
+    private BigDecimal excessKurtosis;
+
+    /**
+     * Kelly criterion - optimal fraction of capital to risk.
+     * Formula: (Win Probability * Average Win - Loss Probability * Average Loss) / Average Win
+     * Indicates the theoretically optimal position size for geometric growth.
+     */
+    private BigDecimal kellyFraction;
+
+    /**
+     * Half-Kelly - conservative version of Kelly (Kelly / 2).
+     * Commonly used in practice to reduce volatility.
+     */
+    private BigDecimal halfKelly;
+
+    /**
+     * Tail ratio - ratio of right tail to left tail.
+     * Formula: 95th percentile return / 5th percentile return (absolute)
+     * Higher is better - indicates larger gains than losses in extreme cases.
+     */
+    private BigDecimal tailRatio;
+
+    /**
+     * Gain-to-pain ratio - sum of returns / sum of absolute negative returns.
+     * Similar to omega ratio but simpler calculation.
+     * Higher is better.
+     */
+    private BigDecimal gainToPainRatio;
 }

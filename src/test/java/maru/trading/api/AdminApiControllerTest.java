@@ -259,7 +259,7 @@ class AdminApiControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.ok").value(true))
-                .andExpect(jsonPath("$.message").value("Signal created and processing"));
+                .andExpect(jsonPath("$.message").value("Signal processed and order sent successfully"));
     }
 
     @Test

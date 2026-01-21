@@ -72,4 +72,30 @@ public class WalkForwardConfig {
      */
     @Builder.Default
     private final int minWindows = 3;
+
+    /**
+     * Walk-forward mode.
+     *
+     * ROLLING: In-sample window moves forward with each step
+     * ANCHORED: In-sample always starts from the beginning, growing over time
+     */
+    @Builder.Default
+    private final WalkForwardMode mode = WalkForwardMode.ROLLING;
+
+    /**
+     * Walk-forward analysis mode.
+     */
+    public enum WalkForwardMode {
+        /**
+         * Rolling mode: Both in-sample start and end move forward.
+         * In-sample window size stays constant.
+         */
+        ROLLING,
+
+        /**
+         * Anchored mode: In-sample always starts from analysisStartDate.
+         * In-sample window grows over time.
+         */
+        ANCHORED
+    }
 }

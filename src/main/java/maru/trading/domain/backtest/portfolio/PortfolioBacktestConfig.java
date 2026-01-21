@@ -45,6 +45,13 @@ public class PortfolioBacktestConfig {
     private final String strategyId;
 
     /**
+     * Strategy type for factory creation.
+     * Valid values: MA_CROSSOVER, RSI, BOLLINGER_BANDS, MACD
+     */
+    @Builder.Default
+    private final String strategyType = "MA_CROSSOVER";
+
+    /**
      * Strategy parameters.
      */
     private final Map<String, Object> strategyParams;

@@ -163,9 +163,23 @@ public class WalkForwardAnalyzer {
     }
 
     /**
-     * Generate walk-forward windows.
+     * Generate walk-forward windows based on mode.
      */
     private List<WalkForwardWindow> generateWindows(WalkForwardConfig config) {
+        if (config.getMode() == WalkForwardConfig.WalkForwardMode.ANCHORED) {
+            return generateAnchoredWindows(config);
+        } else {
+            return generateRollingWindows(config);
+        }
+    }
+
+    /**
+     * Generate rolling walk-forward windows.
+     *
+     * In rolling mode, both in-sample start and end move forward.
+     * The in-sample window size stays constant.
+     */
+    private List<WalkForwardWindow> generateRollingWindows(WalkForwardConfig config) {
         List<WalkForwardWindow> windows = new ArrayList<>();
 
         LocalDate currentStart = config.getAnalysisStartDate();
@@ -189,6 +203,43 @@ public class WalkForwardAnalyzer {
 
             // Move to next window
             currentStart = currentStart.plusDays(config.getStepDays());
+        }
+
+        return windows;
+    }
+
+    /**
+     * Generate anchored walk-forward windows.
+     *
+     * In anchored mode, in-sample always starts from analysisStartDate.
+     * The in-sample window grows over time.
+     */
+    private List<WalkForwardWindow> generateAnchoredWindows(WalkForwardConfig config) {
+        List<WalkForwardWindow> windows = new ArrayList<>();
+
+        LocalDate analysisStart = config.getAnalysisStartDate();
+        LocalDate analysisEnd = config.getAnalysisEndDate();
+
+        // Start with minimum in-sample period
+        LocalDate inSampleEnd = analysisStart.plusDays(config.getInSampleDays() - 1);
+
+        while (true) {
+            // In-sample period (always starts from beginning)
+            LocalDate inSampleStart = analysisStart;
+
+            // Out-of-sample period
+            LocalDate outOfSampleStart = inSampleEnd.plusDays(1);
+            LocalDate outOfSampleEnd = outOfSampleStart.plusDays(config.getOutOfSampleDays() - 1);
+
+            // Check if window fits within analysis period
+            if (outOfSampleEnd.isAfter(analysisEnd)) {
+                break;
+            }
+
+            windows.add(new WalkForwardWindow(inSampleStart, inSampleEnd, outOfSampleStart, outOfSampleEnd));
+
+            // Move in-sample end forward (in-sample grows)
+            inSampleEnd = inSampleEnd.plusDays(config.getStepDays());
         }
 
         return windows;

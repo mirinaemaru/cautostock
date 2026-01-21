@@ -1,11 +1,14 @@
 package maru.trading.domain.backtest;
 
+import java.util.concurrent.CompletableFuture;
+
 /**
  * Backtest Engine interface.
  *
  * Main orchestrator for running backtest simulations.
+ * Supports both synchronous and asynchronous execution.
  *
- * Usage:
+ * Usage (Synchronous):
  * <pre>
  * BacktestConfig config = BacktestConfig.builder()
  *     .strategyId("STR_001")
@@ -15,6 +18,13 @@ package maru.trading.domain.backtest;
  *     .build();
  *
  * BacktestResult result = backtestEngine.run(config);
+ * </pre>
+ *
+ * Usage (Asynchronous):
+ * <pre>
+ * String jobId = backtestEngine.runAsync(config);
+ * // Later...
+ * BacktestProgress progress = backtestEngine.getProgress(jobId);
  * </pre>
  */
 public interface BacktestEngine {
@@ -64,4 +74,39 @@ public interface BacktestEngine {
      * @param backtestId Backtest ID
      */
     void cancel(String backtestId);
+
+    /**
+     * Run backtest asynchronously.
+     *
+     * Submits backtest to background executor and returns immediately.
+     * Use getProgress() to track execution status.
+     *
+     * @param config Backtest configuration
+     * @return Job ID for tracking progress
+     */
+    String runAsync(BacktestConfig config);
+
+    /**
+     * Run backtest asynchronously with callback.
+     *
+     * @param config Backtest configuration
+     * @return CompletableFuture that completes with result
+     */
+    CompletableFuture<BacktestResult> runAsyncWithFuture(BacktestConfig config);
+
+    /**
+     * Get progress of running backtest.
+     *
+     * @param jobId Job ID from runAsync()
+     * @return Current progress information
+     */
+    BacktestProgress getProgress(String jobId);
+
+    /**
+     * Get result of completed backtest.
+     *
+     * @param jobId Job ID
+     * @return Backtest result if completed, null otherwise
+     */
+    BacktestResult getResult(String jobId);
 }

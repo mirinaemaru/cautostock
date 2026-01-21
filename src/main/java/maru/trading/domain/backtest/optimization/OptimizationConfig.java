@@ -68,7 +68,14 @@ public class OptimizationConfig {
         /**
          * Random search - test random parameter combinations.
          */
-        RANDOM_SEARCH
+        RANDOM_SEARCH,
+
+        /**
+         * Bayesian optimization - use Gaussian Process to model objective function
+         * and select next points based on acquisition function.
+         * More efficient than grid/random search for expensive evaluations.
+         */
+        BAYESIAN
     }
 
     /**

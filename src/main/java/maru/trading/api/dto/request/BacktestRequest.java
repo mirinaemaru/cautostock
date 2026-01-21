@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import maru.trading.domain.backtest.data.DataSourceConfig;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -73,4 +74,17 @@ public class BacktestRequest {
      * Optional.
      */
     private Map<String, Object> strategyParams;
+
+    /**
+     * Strategy type for dynamic strategy selection.
+     * Available types: "MA_CROSSOVER", "RSI", "BOLLINGER", "MACD"
+     * Default: "MA_CROSSOVER"
+     */
+    private String strategyType;
+
+    /**
+     * Data source configuration.
+     * If not provided, defaults to DATABASE source.
+     */
+    private DataSourceConfig dataSourceConfig;
 }

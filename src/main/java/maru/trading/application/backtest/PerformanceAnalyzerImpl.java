@@ -166,6 +166,16 @@ public class PerformanceAnalyzerImpl implements PerformanceAnalyzer {
                 ? result.getTotalReturn().divide(maxDrawdown.abs(), SCALE, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO;
 
+        // Calculate advanced risk metrics
+        BigDecimal omegaRatio = calculateOmegaRatio(trades);
+        BigDecimal skewness = calculateSkewness(trades);
+        BigDecimal kurtosis = calculateKurtosis(trades);
+        BigDecimal excessKurtosis = kurtosis.subtract(BigDecimal.valueOf(3));
+        BigDecimal kellyFraction = calculateKellyFraction(trades);
+        BigDecimal halfKelly = kellyFraction.divide(BigDecimal.valueOf(2), SCALE, RoundingMode.HALF_UP);
+        BigDecimal tailRatio = calculateTailRatio(trades);
+        BigDecimal gainToPainRatio = calculateGainToPainRatio(trades);
+
         return RiskMetrics.builder()
                 .volatility(volatility)
                 .downsideDeviation(downsideDeviation)
@@ -173,6 +183,14 @@ public class PerformanceAnalyzerImpl implements PerformanceAnalyzer {
                 .cvar95(cvar95)
                 .calmarRatio(calmarRatio)
                 .recoveryFactor(recoveryFactor)
+                .omegaRatio(omegaRatio)
+                .skewness(skewness)
+                .kurtosis(kurtosis)
+                .excessKurtosis(excessKurtosis)
+                .kellyFraction(kellyFraction)
+                .halfKelly(halfKelly)
+                .tailRatio(tailRatio)
+                .gainToPainRatio(gainToPainRatio)
                 .build();
     }
 
@@ -334,9 +352,50 @@ public class PerformanceAnalyzerImpl implements PerformanceAnalyzer {
     }
 
     private Integer calculateMaxDrawdownDuration(BacktestResult result) {
-        // Simplified: return 0 for now
-        // Full implementation would track days from peak to recovery
-        return 0;
+        EquityCurve curve = generateEquityCurve(result);
+        List<EquityCurve.EquityPoint> points = curve.getPoints();
+
+        if (points.size() < 2) {
+            return 0;
+        }
+
+        int maxDuration = 0;
+        int currentDuration = 0;
+        BigDecimal peak = points.get(0).getEquity();
+        LocalDateTime peakTime = points.get(0).getTimestamp();
+        boolean inDrawdown = false;
+
+        for (EquityCurve.EquityPoint point : points) {
+            if (point.getEquity().compareTo(peak) >= 0) {
+                // New peak reached or recovered
+                if (inDrawdown) {
+                    // Calculate duration from peak to recovery
+                    long days = ChronoUnit.DAYS.between(peakTime, point.getTimestamp());
+                    currentDuration = (int) Math.max(days, 1); // At least 1 day if there was a drawdown
+                    maxDuration = Math.max(maxDuration, currentDuration);
+                    inDrawdown = false;
+                }
+                // Update peak
+                peak = point.getEquity();
+                peakTime = point.getTimestamp();
+                currentDuration = 0;
+            } else {
+                // In drawdown
+                if (!inDrawdown) {
+                    inDrawdown = true;
+                }
+            }
+        }
+
+        // If still in drawdown at end, calculate duration to last point
+        if (inDrawdown && !points.isEmpty()) {
+            LocalDateTime lastTime = points.get(points.size() - 1).getTimestamp();
+            long days = ChronoUnit.DAYS.between(peakTime, lastTime);
+            currentDuration = (int) Math.max(days, 1);
+            maxDuration = Math.max(maxDuration, currentDuration);
+        }
+
+        return maxDuration;
     }
 
     private BigDecimal calculateVaR(List<BacktestTrade> trades, double confidence) {
@@ -405,5 +464,268 @@ public class PerformanceAnalyzerImpl implements PerformanceAnalyzer {
         }
 
         return maxLosses;
+    }
+
+    // ==================== Advanced Risk Metrics ====================
+
+    /**
+     * Calculate Omega Ratio.
+     *
+     * Omega = Sum of returns above threshold / Sum of returns below threshold
+     * Threshold is typically 0 (risk-free rate adjusted).
+     */
+    private BigDecimal calculateOmegaRatio(List<BacktestTrade> trades) {
+        BigDecimal threshold = BigDecimal.ZERO; // Can be set to MAR (minimum acceptable return)
+
+        List<BigDecimal> returns = trades.stream()
+                .map(BacktestTrade::getReturnPct)
+                .filter(r -> r != null)
+                .toList();
+
+        if (returns.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+
+        BigDecimal gains = BigDecimal.ZERO;
+        BigDecimal losses = BigDecimal.ZERO;
+
+        for (BigDecimal ret : returns) {
+            if (ret.compareTo(threshold) > 0) {
+                gains = gains.add(ret.subtract(threshold));
+            } else {
+                losses = losses.add(threshold.subtract(ret));
+            }
+        }
+
+        if (losses.compareTo(BigDecimal.ZERO) == 0) {
+            return gains.compareTo(BigDecimal.ZERO) > 0 ? BigDecimal.valueOf(999.99) : BigDecimal.ONE;
+        }
+
+        return gains.divide(losses, SCALE, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Calculate Skewness (third standardized moment).
+     *
+     * Skewness = E[(X - μ)³] / σ³
+     */
+    private BigDecimal calculateSkewness(List<BacktestTrade> trades) {
+        List<BigDecimal> returns = trades.stream()
+                .map(BacktestTrade::getReturnPct)
+                .filter(r -> r != null)
+                .toList();
+
+        if (returns.size() < 3) {
+            return BigDecimal.ZERO;
+        }
+
+        int n = returns.size();
+
+        // Calculate mean
+        BigDecimal sum = returns.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal mean = sum.divide(BigDecimal.valueOf(n), SCALE, RoundingMode.HALF_UP);
+
+        // Calculate standard deviation
+        BigDecimal variance = BigDecimal.ZERO;
+        for (BigDecimal ret : returns) {
+            BigDecimal diff = ret.subtract(mean);
+            variance = variance.add(diff.multiply(diff));
+        }
+        variance = variance.divide(BigDecimal.valueOf(n), SCALE, RoundingMode.HALF_UP);
+        double stdDev = Math.sqrt(variance.doubleValue());
+
+        if (stdDev == 0) {
+            return BigDecimal.ZERO;
+        }
+
+        // Calculate third moment
+        double thirdMoment = 0.0;
+        for (BigDecimal ret : returns) {
+            double diff = ret.subtract(mean).doubleValue();
+            thirdMoment += Math.pow(diff, 3);
+        }
+        thirdMoment /= n;
+
+        // Skewness = third moment / std^3
+        double skewness = thirdMoment / Math.pow(stdDev, 3);
+
+        return BigDecimal.valueOf(skewness).setScale(DISPLAY_SCALE, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Calculate Kurtosis (fourth standardized moment).
+     *
+     * Kurtosis = E[(X - μ)⁴] / σ⁴
+     * Normal distribution has kurtosis = 3.
+     */
+    private BigDecimal calculateKurtosis(List<BacktestTrade> trades) {
+        List<BigDecimal> returns = trades.stream()
+                .map(BacktestTrade::getReturnPct)
+                .filter(r -> r != null)
+                .toList();
+
+        if (returns.size() < 4) {
+            return BigDecimal.valueOf(3); // Return normal distribution kurtosis
+        }
+
+        int n = returns.size();
+
+        // Calculate mean
+        BigDecimal sum = returns.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal mean = sum.divide(BigDecimal.valueOf(n), SCALE, RoundingMode.HALF_UP);
+
+        // Calculate standard deviation
+        BigDecimal variance = BigDecimal.ZERO;
+        for (BigDecimal ret : returns) {
+            BigDecimal diff = ret.subtract(mean);
+            variance = variance.add(diff.multiply(diff));
+        }
+        variance = variance.divide(BigDecimal.valueOf(n), SCALE, RoundingMode.HALF_UP);
+        double stdDev = Math.sqrt(variance.doubleValue());
+
+        if (stdDev == 0) {
+            return BigDecimal.valueOf(3);
+        }
+
+        // Calculate fourth moment
+        double fourthMoment = 0.0;
+        for (BigDecimal ret : returns) {
+            double diff = ret.subtract(mean).doubleValue();
+            fourthMoment += Math.pow(diff, 4);
+        }
+        fourthMoment /= n;
+
+        // Kurtosis = fourth moment / std^4
+        double kurtosis = fourthMoment / Math.pow(stdDev, 4);
+
+        return BigDecimal.valueOf(kurtosis).setScale(DISPLAY_SCALE, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Calculate Kelly Fraction - optimal bet size for geometric growth.
+     *
+     * Kelly = (W * AvgWin - L * AvgLoss) / AvgWin
+     *       = (p * b - q) / b
+     * where p = win probability, q = 1-p, b = avg win/avg loss ratio
+     */
+    private BigDecimal calculateKellyFraction(List<BacktestTrade> trades) {
+        if (trades.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+
+        long winners = trades.stream().filter(BacktestTrade::isWinner).count();
+        long losers = trades.stream().filter(BacktestTrade::isLoser).count();
+        int total = trades.size();
+
+        if (total == 0 || losers == 0) {
+            return BigDecimal.ZERO;
+        }
+
+        BigDecimal winProb = BigDecimal.valueOf(winners).divide(BigDecimal.valueOf(total), SCALE, RoundingMode.HALF_UP);
+        BigDecimal lossProb = BigDecimal.ONE.subtract(winProb);
+
+        // Calculate average win and loss
+        BigDecimal avgWin = trades.stream()
+                .filter(BacktestTrade::isWinner)
+                .map(BacktestTrade::getReturnPct)
+                .filter(r -> r != null)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        avgWin = winners > 0 ? avgWin.divide(BigDecimal.valueOf(winners), SCALE, RoundingMode.HALF_UP) : BigDecimal.ZERO;
+
+        BigDecimal avgLoss = trades.stream()
+                .filter(BacktestTrade::isLoser)
+                .map(BacktestTrade::getReturnPct)
+                .filter(r -> r != null)
+                .map(BigDecimal::abs)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        avgLoss = losers > 0 ? avgLoss.divide(BigDecimal.valueOf(losers), SCALE, RoundingMode.HALF_UP) : BigDecimal.ZERO;
+
+        if (avgLoss.compareTo(BigDecimal.ZERO) == 0) {
+            return BigDecimal.ZERO;
+        }
+
+        // Win/Loss ratio (b)
+        BigDecimal b = avgWin.divide(avgLoss, SCALE, RoundingMode.HALF_UP);
+
+        if (b.compareTo(BigDecimal.ZERO) == 0) {
+            return BigDecimal.ZERO;
+        }
+
+        // Kelly = (p * b - q) / b = p - q/b
+        BigDecimal kelly = winProb.subtract(lossProb.divide(b, SCALE, RoundingMode.HALF_UP));
+
+        // Clamp to reasonable range [0, 1]
+        if (kelly.compareTo(BigDecimal.ZERO) < 0) {
+            kelly = BigDecimal.ZERO;
+        } else if (kelly.compareTo(BigDecimal.ONE) > 0) {
+            kelly = BigDecimal.ONE;
+        }
+
+        return kelly.setScale(DISPLAY_SCALE, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Calculate Tail Ratio.
+     *
+     * Tail Ratio = |95th percentile return| / |5th percentile return|
+     * Higher is better - indicates larger gains than losses in extreme cases.
+     */
+    private BigDecimal calculateTailRatio(List<BacktestTrade> trades) {
+        List<BigDecimal> returns = trades.stream()
+                .map(BacktestTrade::getReturnPct)
+                .filter(r -> r != null)
+                .sorted()
+                .toList();
+
+        if (returns.size() < 20) { // Need enough data points
+            return BigDecimal.ONE;
+        }
+
+        int n = returns.size();
+        int idx5 = (int) (0.05 * n);
+        int idx95 = (int) (0.95 * n);
+
+        if (idx95 >= n) idx95 = n - 1;
+
+        BigDecimal percentile5 = returns.get(idx5).abs();
+        BigDecimal percentile95 = returns.get(idx95).abs();
+
+        if (percentile5.compareTo(BigDecimal.ZERO) == 0) {
+            return percentile95.compareTo(BigDecimal.ZERO) > 0 ? BigDecimal.valueOf(999.99) : BigDecimal.ONE;
+        }
+
+        return percentile95.divide(percentile5, SCALE, RoundingMode.HALF_UP)
+                .setScale(DISPLAY_SCALE, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Calculate Gain to Pain Ratio.
+     *
+     * GtP = Sum of all returns / Sum of absolute negative returns
+     * Similar to Omega but simpler.
+     */
+    private BigDecimal calculateGainToPainRatio(List<BacktestTrade> trades) {
+        List<BigDecimal> returns = trades.stream()
+                .map(BacktestTrade::getReturnPct)
+                .filter(r -> r != null)
+                .toList();
+
+        if (returns.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+
+        BigDecimal totalReturn = returns.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal totalPain = returns.stream()
+                .filter(r -> r.compareTo(BigDecimal.ZERO) < 0)
+                .map(BigDecimal::abs)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        if (totalPain.compareTo(BigDecimal.ZERO) == 0) {
+            return totalReturn.compareTo(BigDecimal.ZERO) > 0 ? BigDecimal.valueOf(999.99) : BigDecimal.ZERO;
+        }
+
+        return totalReturn.divide(totalPain, SCALE, RoundingMode.HALF_UP)
+                .setScale(DISPLAY_SCALE, RoundingMode.HALF_UP);
     }
 }

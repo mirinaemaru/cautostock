@@ -1,13 +1,16 @@
 package maru.trading.api.controller.admin;
 
 import maru.trading.api.dto.request.BacktestRequest;
+import maru.trading.api.dto.request.MonteCarloRequest;
+import maru.trading.api.dto.response.BacktestProgressResponse;
 import maru.trading.api.dto.response.BacktestResponse;
 import maru.trading.api.dto.response.BacktestSummaryResponse;
 import maru.trading.api.dto.response.BacktestTradeResponse;
-import maru.trading.domain.backtest.BacktestConfig;
-import maru.trading.domain.backtest.BacktestEngine;
-import maru.trading.domain.backtest.BacktestException;
-import maru.trading.domain.backtest.BacktestResult;
+import maru.trading.api.dto.response.MonteCarloResponse;
+import maru.trading.application.backtest.MonteCarloSimulator;
+import maru.trading.domain.backtest.*;
+import maru.trading.domain.backtest.montecarlo.MonteCarloConfig;
+import maru.trading.domain.backtest.montecarlo.MonteCarloResult;
 import maru.trading.infra.config.UlidGenerator;
 import maru.trading.infra.persistence.jpa.entity.BacktestRunEntity;
 import maru.trading.infra.persistence.jpa.entity.BacktestTradeEntity;
@@ -16,13 +19,19 @@ import maru.trading.infra.persistence.jpa.repository.BacktestTradeJpaRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Backtest Admin Controller.
@@ -45,14 +54,17 @@ public class BacktestController {
     private final BacktestEngine backtestEngine;
     private final BacktestRunJpaRepository backtestRunRepository;
     private final BacktestTradeJpaRepository backtestTradeRepository;
+    private final MonteCarloSimulator monteCarloSimulator;
 
     public BacktestController(
             BacktestEngine backtestEngine,
             BacktestRunJpaRepository backtestRunRepository,
-            BacktestTradeJpaRepository backtestTradeRepository) {
+            BacktestTradeJpaRepository backtestTradeRepository,
+            MonteCarloSimulator monteCarloSimulator) {
         this.backtestEngine = backtestEngine;
         this.backtestRunRepository = backtestRunRepository;
         this.backtestTradeRepository = backtestTradeRepository;
+        this.monteCarloSimulator = monteCarloSimulator;
     }
 
     /**
@@ -89,6 +101,7 @@ public class BacktestController {
             BacktestConfig config = BacktestConfig.builder()
                     .backtestId(UlidGenerator.generate())
                     .strategyId(request.getStrategyId())
+                    .strategyType(request.getStrategyType() != null ? request.getStrategyType() : "MA_CROSSOVER")
                     .symbols(request.getSymbols())
                     .startDate(LocalDate.parse(request.getStartDate()))
                     .endDate(LocalDate.parse(request.getEndDate()))
@@ -97,6 +110,7 @@ public class BacktestController {
                     .commission(request.getCommission() != null ? request.getCommission() : java.math.BigDecimal.valueOf(0.0015))
                     .slippage(request.getSlippage() != null ? request.getSlippage() : java.math.BigDecimal.valueOf(0.0005))
                     .strategyParams(request.getStrategyParams() != null ? request.getStrategyParams() : new HashMap<>())
+                    .dataSourceConfig(request.getDataSourceConfig())
                     .build();
 
             // Run backtest
@@ -263,6 +277,119 @@ public class BacktestController {
     }
 
     /**
+     * Run Monte Carlo simulation.
+     *
+     * POST /api/v1/admin/backtests/monte-carlo
+     *
+     * Uses a completed backtest as the base for generating
+     * thousands of possible outcome scenarios.
+     *
+     * Request body:
+     * {
+     *   "backtestId": "01HXYZ...",
+     *   "numSimulations": 1000,
+     *   "method": "BOOTSTRAP",
+     *   "confidenceLevel": 0.95
+     * }
+     */
+    @PostMapping("/monte-carlo")
+    public ResponseEntity<MonteCarloResponse> runMonteCarloSimulation(@RequestBody MonteCarloRequest request) {
+        log.info("Running Monte Carlo simulation: backtestId={}, numSimulations={}, method={}",
+                request.getBacktestId(), request.getNumSimulations(), request.getMethod());
+
+        try {
+            // Validate backtestId
+            if (request.getBacktestId() == null || request.getBacktestId().isBlank()) {
+                return ResponseEntity.badRequest()
+                        .body(MonteCarloResponse.error("Backtest ID is required"));
+            }
+
+            // Get base backtest result
+            BacktestResult baseResult = backtestEngine.getResult(request.getBacktestId());
+            if (baseResult == null) {
+                // Try to load from database
+                var entityOpt = backtestRunRepository.findById(request.getBacktestId());
+                if (entityOpt.isEmpty()) {
+                    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                            .body(MonteCarloResponse.error("Backtest not found: " + request.getBacktestId()));
+                }
+
+                // Load trades for the backtest
+                var tradeEntities = backtestTradeRepository.findByBacktestIdOrderByEntryTimeAsc(request.getBacktestId());
+                var entity = entityOpt.get();
+
+                // Build minimal result with trades
+                java.util.List<BacktestTrade> trades = tradeEntities.stream()
+                        .map(te -> BacktestTrade.builder()
+                                .tradeId(te.getTradeId())
+                                .symbol(te.getSymbol())
+                                .side(maru.trading.domain.order.Side.valueOf(te.getSide()))
+                                .entryPrice(te.getEntryPrice())
+                                .exitPrice(te.getExitPrice())
+                                .entryQty(te.getEntryQty())
+                                .exitQty(te.getExitQty())
+                                .netPnl(te.getNetPnl())
+                                .returnPct(te.getReturnPct())
+                                .entryTime(te.getEntryTime())
+                                .exitTime(te.getExitTime())
+                                .build())
+                        .collect(java.util.stream.Collectors.toList());
+
+                // Build config with initialCapital
+                BacktestConfig minimalConfig = BacktestConfig.builder()
+                        .backtestId(entity.getBacktestId())
+                        .initialCapital(entity.getInitialCapital())
+                        .build();
+
+                baseResult = BacktestResult.builder()
+                        .backtestId(entity.getBacktestId())
+                        .config(minimalConfig)
+                        .finalCapital(entity.getFinalCapital())
+                        .totalReturn(entity.getTotalReturn())
+                        .trades(trades)
+                        .build();
+            }
+
+            // Parse method
+            MonteCarloConfig.SimulationMethod method = MonteCarloConfig.SimulationMethod.BOOTSTRAP;
+            if (request.getMethod() != null && !request.getMethod().isBlank()) {
+                try {
+                    method = MonteCarloConfig.SimulationMethod.valueOf(request.getMethod().toUpperCase());
+                } catch (IllegalArgumentException e) {
+                    return ResponseEntity.badRequest()
+                            .body(MonteCarloResponse.error("Invalid method. Use BOOTSTRAP, PERMUTATION, or PARAMETRIC"));
+                }
+            }
+
+            // Build config
+            MonteCarloConfig config = MonteCarloConfig.builder()
+                    .simulationId(UlidGenerator.generate())
+                    .baseBacktestResult(baseResult)
+                    .numSimulations(request.getNumSimulations() != null ? request.getNumSimulations() : 1000)
+                    .method(method)
+                    .confidenceLevel(request.getConfidenceLevel() != null ? request.getConfidenceLevel() : java.math.BigDecimal.valueOf(0.95))
+                    .preserveCorrelation(request.getPreserveCorrelation() != null ? request.getPreserveCorrelation() : false)
+                    .blockSize(request.getBlockSize() != null ? request.getBlockSize() : 5)
+                    .randomSeed(request.getRandomSeed())
+                    .distributionBins(request.getDistributionBins() != null ? request.getDistributionBins() : 50)
+                    .build();
+
+            // Run simulation
+            MonteCarloResult result = monteCarloSimulator.simulate(config);
+
+            log.info("Monte Carlo simulation completed: simulationId={}, meanReturn={}%, probabilityOfProfit={}%",
+                    result.getSimulationId(), result.getMeanReturn(), result.getProbabilityOfProfit());
+
+            return ResponseEntity.ok(MonteCarloResponse.fromDomain(result));
+
+        } catch (Exception e) {
+            log.error("Monte Carlo simulation failed: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(MonteCarloResponse.error("Simulation failed: " + e.getMessage()));
+        }
+    }
+
+    /**
      * Get backtest result by ID.
      *
      * GET /api/v1/admin/backtests/{backtestId}
@@ -329,6 +456,220 @@ public class BacktestController {
 
         log.info("Backtest deleted: backtestId={}", backtestId);
         return ResponseEntity.ok(Map.of("message", "Backtest deleted successfully", "backtestId", backtestId));
+    }
+
+    // ==================== Async Endpoints ====================
+
+    /**
+     * Run backtest asynchronously.
+     *
+     * POST /api/v1/admin/backtests/async
+     *
+     * Returns job ID immediately. Use /jobs/{jobId}/status to track progress.
+     */
+    @PostMapping("/async")
+    public ResponseEntity<Map<String, Object>> runBacktestAsync(@RequestBody BacktestRequest request) {
+        log.info("Received async backtest request: strategy={}, symbols={}",
+                request.getStrategyId(), request.getSymbols());
+
+        try {
+            validateBacktestRequest(request);
+
+            BacktestConfig config = BacktestConfig.builder()
+                    .backtestId(UlidGenerator.generate())
+                    .strategyId(request.getStrategyId())
+                    .strategyType(request.getStrategyType() != null ? request.getStrategyType() : "MA_CROSSOVER")
+                    .symbols(request.getSymbols())
+                    .startDate(LocalDate.parse(request.getStartDate()))
+                    .endDate(LocalDate.parse(request.getEndDate()))
+                    .timeframe(request.getTimeframe() != null ? request.getTimeframe() : "1d")
+                    .initialCapital(request.getInitialCapital())
+                    .commission(request.getCommission() != null ? request.getCommission() : java.math.BigDecimal.valueOf(0.0015))
+                    .slippage(request.getSlippage() != null ? request.getSlippage() : java.math.BigDecimal.valueOf(0.0005))
+                    .strategyParams(request.getStrategyParams() != null ? request.getStrategyParams() : new HashMap<>())
+                    .dataSourceConfig(request.getDataSourceConfig())
+                    .build();
+
+            String jobId = backtestEngine.runAsync(config);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("jobId", jobId);
+            response.put("backtestId", config.getBacktestId());
+            response.put("status", "QUEUED");
+            response.put("message", "Backtest submitted successfully");
+            response.put("statusUrl", "/api/v1/admin/backtests/jobs/" + jobId + "/status");
+            response.put("progressUrl", "/api/v1/admin/backtests/jobs/" + jobId + "/progress");
+
+            log.info("Async backtest submitted: jobId={}", jobId);
+            return ResponseEntity.accepted().body(response);
+
+        } catch (Exception e) {
+            log.error("Failed to submit async backtest: {}", e.getMessage(), e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            return ResponseEntity.badRequest().body(error);
+        }
+    }
+
+    /**
+     * Get job status.
+     *
+     * GET /api/v1/admin/backtests/jobs/{jobId}/status
+     */
+    @GetMapping("/jobs/{jobId}/status")
+    public ResponseEntity<BacktestProgressResponse> getJobStatus(@PathVariable String jobId) {
+        log.debug("Getting job status: jobId={}", jobId);
+
+        BacktestProgress progress = backtestEngine.getProgress(jobId);
+        if (progress == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        return ResponseEntity.ok(BacktestProgressResponse.fromDomain(progress));
+    }
+
+    /**
+     * Get job progress via Server-Sent Events (SSE).
+     *
+     * GET /api/v1/admin/backtests/jobs/{jobId}/progress
+     *
+     * Streams progress updates in real-time until completion.
+     */
+    @GetMapping(value = "/jobs/{jobId}/progress", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter getJobProgressStream(@PathVariable String jobId) {
+        log.info("Starting progress stream for job: {}", jobId);
+
+        SseEmitter emitter = new SseEmitter(300000L); // 5 minute timeout
+
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+        Runnable progressChecker = new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    BacktestProgress progress = backtestEngine.getProgress(jobId);
+                    if (progress == null) {
+                        emitter.send(SseEmitter.event()
+                                .name("error")
+                                .data(Map.of("error", "Job not found")));
+                        emitter.complete();
+                        scheduler.shutdown();
+                        return;
+                    }
+
+                    // Send progress update
+                    emitter.send(SseEmitter.event()
+                            .name("progress")
+                            .data(BacktestProgressResponse.fromDomain(progress)));
+
+                    // Complete if done
+                    if (progress.isDone()) {
+                        if (progress.isSuccess()) {
+                            BacktestResult result = backtestEngine.getResult(jobId);
+                            if (result != null) {
+                                emitter.send(SseEmitter.event()
+                                        .name("result")
+                                        .data(Map.of(
+                                                "jobId", jobId,
+                                                "finalCapital", result.getFinalCapital(),
+                                                "totalReturn", result.getTotalReturn(),
+                                                "totalTrades", result.getTrades() != null ? result.getTrades().size() : 0
+                                        )));
+                            }
+                        }
+                        emitter.complete();
+                        scheduler.shutdown();
+                    }
+                } catch (IOException e) {
+                    log.warn("Error sending progress: {}", e.getMessage());
+                    emitter.completeWithError(e);
+                    scheduler.shutdown();
+                }
+            }
+        };
+
+        scheduler.scheduleAtFixedRate(progressChecker, 0, 500, TimeUnit.MILLISECONDS);
+
+        emitter.onCompletion(() -> {
+            log.debug("Progress stream completed for job: {}", jobId);
+            scheduler.shutdown();
+        });
+
+        emitter.onTimeout(() -> {
+            log.warn("Progress stream timed out for job: {}", jobId);
+            scheduler.shutdown();
+        });
+
+        emitter.onError(e -> {
+            log.warn("Progress stream error for job {}: {}", jobId, e.getMessage());
+            scheduler.shutdown();
+        });
+
+        return emitter;
+    }
+
+    /**
+     * Cancel a running job.
+     *
+     * POST /api/v1/admin/backtests/jobs/{jobId}/cancel
+     */
+    @PostMapping("/jobs/{jobId}/cancel")
+    public ResponseEntity<Map<String, Object>> cancelJob(@PathVariable String jobId) {
+        log.info("Cancelling job: {}", jobId);
+
+        BacktestProgress progress = backtestEngine.getProgress(jobId);
+        if (progress == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        if (progress.isDone()) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("jobId", jobId);
+            response.put("status", progress.getStatus().name());
+            response.put("message", "Job already completed");
+            return ResponseEntity.ok(response);
+        }
+
+        backtestEngine.cancel(jobId);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("jobId", jobId);
+        response.put("status", "CANCELLED");
+        response.put("message", "Job cancellation requested");
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Get result of a completed async job.
+     *
+     * GET /api/v1/admin/backtests/jobs/{jobId}/result
+     */
+    @GetMapping("/jobs/{jobId}/result")
+    public ResponseEntity<BacktestResponse> getJobResult(@PathVariable String jobId) {
+        log.info("Getting job result: {}", jobId);
+
+        BacktestProgress progress = backtestEngine.getProgress(jobId);
+        if (progress == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        if (!progress.isDone()) {
+            return ResponseEntity.status(HttpStatus.ACCEPTED)
+                    .body(BacktestResponse.error("Job still running. Progress: " + progress.getProgressPercent() + "%"));
+        }
+
+        if (!progress.isSuccess()) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(BacktestResponse.error("Job failed: " + progress.getErrorMessage()));
+        }
+
+        BacktestResult result = backtestEngine.getResult(jobId);
+        if (result == null) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(BacktestResponse.error("Result not available"));
+        }
+
+        return ResponseEntity.ok(BacktestResponse.fromDomain(result));
     }
 
     /**

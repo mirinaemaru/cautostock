@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import maru.trading.domain.backtest.data.DataSourceConfig;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -30,6 +31,13 @@ public class BacktestConfig {
      * Strategy to test.
      */
     private String strategyId;
+
+    /**
+     * Strategy type for factory creation.
+     * Valid values: MA_CROSSOVER, RSI, BOLLINGER_BANDS, MACD
+     */
+    @Builder.Default
+    private String strategyType = "MA_CROSSOVER";
 
     /**
      * Strategy parameters (e.g., MA periods, RSI thresholds).
@@ -70,4 +78,10 @@ public class BacktestConfig {
      */
     @Builder.Default
     private BigDecimal slippage = BigDecimal.valueOf(0.0005);
+
+    /**
+     * Data source configuration.
+     * Supports DATABASE (default), CSV, and REALTIME sources.
+     */
+    private DataSourceConfig dataSourceConfig;
 }
