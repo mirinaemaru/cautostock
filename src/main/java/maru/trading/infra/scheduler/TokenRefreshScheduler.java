@@ -10,6 +10,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -41,33 +42,35 @@ public class TokenRefreshScheduler {
 
     /**
      * Check and refresh tokens every 1 minute.
+     * Optimized: Only queries tokens that actually need refresh (expiring within threshold).
      */
     @Scheduled(fixedDelay = 60000) // 1 minute
     public void checkAndRefreshTokens() {
         log.debug("Checking tokens for refresh");
 
         try {
-            // Load all tokens
-            List<BrokerToken> tokens = tokenRepository.findAll();
+            // Optimized: Only query tokens expiring within threshold (not yet expired)
+            LocalDateTime now = LocalDateTime.now();
+            LocalDateTime expiresBeforeThreshold = now.plus(REFRESH_THRESHOLD);
 
-            if (tokens.isEmpty()) {
-                log.debug("No tokens found, skipping refresh check");
+            List<BrokerToken> tokensNeedingRefresh = tokenRepository.findTokensNeedingRefresh(now, expiresBeforeThreshold);
+
+            if (tokensNeedingRefresh.isEmpty()) {
+                log.debug("No tokens need refresh at this time");
                 return;
             }
 
-            log.debug("Checking {} tokens for refresh", tokens.size());
+            log.info("Found {} tokens needing refresh", tokensNeedingRefresh.size());
 
-            // Check each token
-            for (BrokerToken token : tokens) {
-                if (token.needsRefresh(REFRESH_THRESHOLD)) {
-                    log.info("Token needs refresh: tokenId={}, broker={}, environment={}, expiresAt={}",
-                            token.getTokenId(),
-                            token.getBroker(),
-                            token.getEnvironment(),
-                            token.getExpiresAt());
+            // Refresh each token
+            for (BrokerToken token : tokensNeedingRefresh) {
+                log.info("Token needs refresh: tokenId={}, broker={}, environment={}, expiresAt={}",
+                        token.getTokenId(),
+                        token.getBroker(),
+                        token.getEnvironment(),
+                        token.getExpiresAt());
 
-                    refreshToken(token);
-                }
+                refreshToken(token);
             }
 
         } catch (Exception e) {

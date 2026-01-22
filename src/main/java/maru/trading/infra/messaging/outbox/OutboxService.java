@@ -46,14 +46,11 @@ public class OutboxService {
 	}
 
 	/**
-	 * 이벤트 ID로 Outbox에서 이벤트 조회
+	 * 이벤트 ID로 Outbox에서 이벤트 조회 (인덱스 활용)
 	 */
 	@Transactional(readOnly = true)
 	public EventOutboxEntity findByEventId(String eventId) {
-		return outboxRepository.findAll().stream()
-				.filter(e -> e.getEventId().equals(eventId))
-				.findFirst()
-				.orElse(null);
+		return outboxRepository.findByEventId(eventId).orElse(null);
 	}
 
 	private String toJson(Object obj) {

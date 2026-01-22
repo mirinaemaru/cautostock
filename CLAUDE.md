@@ -10,6 +10,7 @@ This is a KIS (Korea Investment & Securities) OpenAPI-based automated trading sy
 
 ## Technology Stack
 
+- 이 프로젝트의 JVM 버전은 17(매우중요)
 - Java 17
 - Spring Boot 3.x (Web, Validation, Actuator)
 - JPA (Hibernate) with MariaDB

@@ -90,6 +90,12 @@ public class StrategyEntity {
 	@Builder.Default
 	private String delyn = "N";
 
+	@Column(name = "deleted_at")
+	private LocalDateTime deletedAt;
+
+	@Column(name = "deleted_by", length = 64)
+	private String deletedBy;
+
 	@PrePersist
 	protected void onCreate() {
 		createdAt = LocalDateTime.now();
@@ -183,6 +189,13 @@ public class StrategyEntity {
 	// 소프트 삭제
 	public void markDeleted() {
 		this.delyn = "Y";
+		this.deletedAt = LocalDateTime.now();
+	}
+
+	public void markDeleted(String deletedBy) {
+		this.delyn = "Y";
+		this.deletedAt = LocalDateTime.now();
+		this.deletedBy = deletedBy;
 	}
 
 	public boolean isDeleted() {

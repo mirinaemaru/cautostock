@@ -155,22 +155,92 @@ public class RiskAnalysisQueryController {
 
         log.info("Calculating Max Drawdown for account: {}, period: {} days", accountId, period);
 
+        LocalDate endDate = LocalDate.now();
+        LocalDate startDate = endDate.minusDays(period);
+
+        List<DailyPerformanceEntity> performanceData = dailyPerformanceRepository
+                .findByAccountIdAndTradeDateBetweenOrderByTradeDateAsc(accountId, startDate, endDate);
+
         Map<String, Object> response = new HashMap<>();
         response.put("accountId", accountId);
-        response.put("analysisDate", LocalDate.now());
+        response.put("analysisDate", endDate);
         response.put("period", period);
-        response.put("maxDrawdown", new BigDecimal("15.5"));
-        response.put("maxDrawdownPct", new BigDecimal("15.5"));
-        response.put("maxDrawdownAmount", new BigDecimal("1550000"));
-        response.put("peakValue", new BigDecimal("10000000"));
-        response.put("troughValue", new BigDecimal("8450000"));
-        response.put("peakDate", LocalDate.now().minusDays(60));
-        response.put("troughDate", LocalDate.now().minusDays(30));
-        response.put("recoveryDate", LocalDate.now().minusDays(10));
-        response.put("currentDrawdown", new BigDecimal("5.0"));
-        response.put("avgDrawdown", new BigDecimal("8.5"));
+        response.put("dataPoints", performanceData.size());
+
+        if (performanceData.isEmpty()) {
+            response.put("maxDrawdownPct", BigDecimal.ZERO);
+            response.put("maxDrawdownAmount", BigDecimal.ZERO);
+            response.put("peakValue", BigDecimal.ZERO);
+            response.put("troughValue", BigDecimal.ZERO);
+            response.put("currentDrawdown", BigDecimal.ZERO);
+            response.put("avgDrawdown", BigDecimal.ZERO);
+            response.put("status", "NO_DATA");
+            return ResponseEntity.ok(response);
+        }
+
+        // Calculate cumulative equity curve using totalPnl
+        BigDecimal initialValue = new BigDecimal("10000000"); // Default initial value
+        BigDecimal cumulativePnl = BigDecimal.ZERO;
+
+        BigDecimal peak = initialValue;
+        BigDecimal maxDrawdown = BigDecimal.ZERO;
+        BigDecimal maxDrawdownAmt = BigDecimal.ZERO;
+        BigDecimal peakValue = initialValue;
+        BigDecimal troughValue = initialValue;
+        LocalDate peakDate = startDate;
+        LocalDate troughDate = startDate;
+        BigDecimal currentEquity = initialValue;
+        BigDecimal sumDrawdowns = BigDecimal.ZERO;
+        int drawdownCount = 0;
+
+        for (DailyPerformanceEntity perf : performanceData) {
+            // Calculate equity as initial + cumulative P&L
+            cumulativePnl = cumulativePnl.add(perf.getTotalPnl() != null ? perf.getTotalPnl() : BigDecimal.ZERO);
+            BigDecimal equity = initialValue.add(cumulativePnl);
+            currentEquity = equity;
+
+            if (equity.compareTo(peak) > 0) {
+                peak = equity;
+                peakDate = perf.getTradeDate();
+            }
+
+            BigDecimal drawdown = peak.compareTo(BigDecimal.ZERO) > 0
+                    ? peak.subtract(equity).divide(peak, 6, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100))
+                    : BigDecimal.ZERO;
+
+            if (drawdown.compareTo(BigDecimal.ZERO) > 0) {
+                sumDrawdowns = sumDrawdowns.add(drawdown);
+                drawdownCount++;
+            }
+
+            if (drawdown.compareTo(maxDrawdown) > 0) {
+                maxDrawdown = drawdown;
+                maxDrawdownAmt = peak.subtract(equity);
+                peakValue = peak;
+                troughValue = equity;
+                troughDate = perf.getTradeDate();
+            }
+        }
+
+        BigDecimal currentDrawdown = peak.compareTo(BigDecimal.ZERO) > 0
+                ? peak.subtract(currentEquity).divide(peak, 6, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100))
+                : BigDecimal.ZERO;
+
+        BigDecimal avgDrawdown = drawdownCount > 0
+                ? sumDrawdowns.divide(BigDecimal.valueOf(drawdownCount), 4, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+        response.put("maxDrawdownPct", maxDrawdown.setScale(2, RoundingMode.HALF_UP));
+        response.put("maxDrawdownAmount", maxDrawdownAmt.setScale(0, RoundingMode.HALF_UP));
+        response.put("peakValue", peakValue.setScale(0, RoundingMode.HALF_UP));
+        response.put("troughValue", troughValue.setScale(0, RoundingMode.HALF_UP));
+        response.put("peakDate", peakDate);
+        response.put("troughDate", troughDate);
+        response.put("currentDrawdown", currentDrawdown.setScale(2, RoundingMode.HALF_UP));
+        response.put("avgDrawdown", avgDrawdown.setScale(2, RoundingMode.HALF_UP));
         response.put("status", "OK");
 
+        log.info("Max Drawdown calculated: {}%", maxDrawdown.setScale(2, RoundingMode.HALF_UP));
         return ResponseEntity.ok(response);
     }
 
@@ -189,23 +259,110 @@ public class RiskAnalysisQueryController {
 
         log.info("Calculating Sharpe Ratio for account: {}, risk-free rate: {}%", accountId, riskFreeRate);
 
+        LocalDate endDate = LocalDate.now();
+        LocalDate startDate = endDate.minusDays(period);
+
+        List<DailyPerformanceEntity> performanceData = dailyPerformanceRepository
+                .findByAccountIdAndTradeDateBetweenOrderByTradeDateAsc(accountId, startDate, endDate);
+
         Map<String, Object> response = new HashMap<>();
         response.put("accountId", accountId);
-        response.put("analysisDate", LocalDate.now());
+        response.put("analysisDate", endDate);
         response.put("period", period);
         response.put("riskFreeRate", riskFreeRate);
-        response.put("sharpeRatio", new BigDecimal("1.85"));
-        response.put("annualizedReturn", new BigDecimal("18.5"));
-        response.put("annualizedVolatility", new BigDecimal("12.0"));
-        response.put("excessReturn", new BigDecimal("15.0"));
-        response.put("sortinoRatio", new BigDecimal("2.10"));
-        response.put("calmarRatio", new BigDecimal("1.20"));
-        response.put("informationRatio", new BigDecimal("0.95"));
-        response.put("treynorRatio", new BigDecimal("0.15"));
-        response.put("beta", new BigDecimal("1.05"));
-        response.put("alpha", new BigDecimal("2.5"));
+        response.put("dataPoints", performanceData.size());
+
+        if (performanceData.size() < 2) {
+            response.put("sharpeRatio", BigDecimal.ZERO);
+            response.put("annualizedReturn", BigDecimal.ZERO);
+            response.put("annualizedVolatility", BigDecimal.ZERO);
+            response.put("excessReturn", BigDecimal.ZERO);
+            response.put("sortinoRatio", BigDecimal.ZERO);
+            response.put("status", "INSUFFICIENT_DATA");
+            return ResponseEntity.ok(response);
+        }
+
+        // Calculate daily returns using cumulative P&L to simulate equity curve
+        BigDecimal baseEquity = new BigDecimal("10000000");
+        List<BigDecimal> dailyReturns = new ArrayList<>();
+        BigDecimal runningPnl = BigDecimal.ZERO;
+
+        for (int i = 0; i < performanceData.size(); i++) {
+            BigDecimal dayPnl = performanceData.get(i).getTotalPnl() != null
+                    ? performanceData.get(i).getTotalPnl() : BigDecimal.ZERO;
+
+            if (i > 0) {
+                BigDecimal prevEquity = baseEquity.add(runningPnl);
+                runningPnl = runningPnl.add(dayPnl);
+                BigDecimal currEquity = baseEquity.add(runningPnl);
+
+                if (prevEquity.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal dailyReturn = currEquity.subtract(prevEquity)
+                            .divide(prevEquity, 8, RoundingMode.HALF_UP);
+                    dailyReturns.add(dailyReturn);
+                }
+            } else {
+                runningPnl = runningPnl.add(dayPnl);
+            }
+        }
+
+        if (dailyReturns.isEmpty()) {
+            response.put("sharpeRatio", BigDecimal.ZERO);
+            response.put("status", "NO_RETURNS_DATA");
+            return ResponseEntity.ok(response);
+        }
+
+        // Mean daily return
+        BigDecimal meanReturn = dailyReturns.stream()
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .divide(BigDecimal.valueOf(dailyReturns.size()), 8, RoundingMode.HALF_UP);
+
+        // Daily standard deviation
+        BigDecimal variance = dailyReturns.stream()
+                .map(r -> r.subtract(meanReturn).pow(2))
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .divide(BigDecimal.valueOf(dailyReturns.size() - 1), 8, RoundingMode.HALF_UP);
+        BigDecimal dailyStdDev = BigDecimal.valueOf(Math.sqrt(variance.doubleValue()));
+
+        // Annualize (252 trading days)
+        BigDecimal annualizedReturn = meanReturn.multiply(BigDecimal.valueOf(252))
+                .multiply(BigDecimal.valueOf(100));
+        BigDecimal annualizedVolatility = dailyStdDev.multiply(BigDecimal.valueOf(Math.sqrt(252)))
+                .multiply(BigDecimal.valueOf(100));
+
+        // Sharpe Ratio = (Return - RiskFreeRate) / Volatility
+        BigDecimal excessReturn = annualizedReturn.subtract(BigDecimal.valueOf(riskFreeRate));
+        BigDecimal sharpeRatio = annualizedVolatility.compareTo(BigDecimal.ZERO) > 0
+                ? excessReturn.divide(annualizedVolatility, 4, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+        // Sortino Ratio (only downside deviation)
+        BigDecimal downsideVariance = dailyReturns.stream()
+                .filter(r -> r.compareTo(BigDecimal.ZERO) < 0)
+                .map(r -> r.pow(2))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        long negativeCount = dailyReturns.stream().filter(r -> r.compareTo(BigDecimal.ZERO) < 0).count();
+        BigDecimal downsideDeviation = negativeCount > 0
+                ? BigDecimal.valueOf(Math.sqrt(downsideVariance.divide(
+                        BigDecimal.valueOf(negativeCount), 8, RoundingMode.HALF_UP).doubleValue()))
+                        .multiply(BigDecimal.valueOf(Math.sqrt(252)))
+                        .multiply(BigDecimal.valueOf(100))
+                : BigDecimal.ZERO;
+
+        BigDecimal sortinoRatio = downsideDeviation.compareTo(BigDecimal.ZERO) > 0
+                ? excessReturn.divide(downsideDeviation, 4, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+        response.put("sharpeRatio", sharpeRatio.setScale(2, RoundingMode.HALF_UP));
+        response.put("annualizedReturn", annualizedReturn.setScale(2, RoundingMode.HALF_UP));
+        response.put("annualizedVolatility", annualizedVolatility.setScale(2, RoundingMode.HALF_UP));
+        response.put("excessReturn", excessReturn.setScale(2, RoundingMode.HALF_UP));
+        response.put("sortinoRatio", sortinoRatio.setScale(2, RoundingMode.HALF_UP));
+        response.put("dailyMeanReturn", meanReturn.multiply(BigDecimal.valueOf(100)).setScale(4, RoundingMode.HALF_UP));
+        response.put("dailyStdDev", dailyStdDev.multiply(BigDecimal.valueOf(100)).setScale(4, RoundingMode.HALF_UP));
         response.put("status", "OK");
 
+        log.info("Sharpe Ratio calculated: {}", sharpeRatio.setScale(2, RoundingMode.HALF_UP));
         return ResponseEntity.ok(response);
     }
 

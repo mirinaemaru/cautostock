@@ -60,6 +60,13 @@ public class BrokerTokenRepositoryImpl implements BrokerTokenRepository {
                 .collect(Collectors.toList());
     }
 
+    @Override
+    public List<BrokerToken> findTokensNeedingRefresh(LocalDateTime now, LocalDateTime expiresBeforeThreshold) {
+        return jpaRepository.findByExpiresAtBetween(now, expiresBeforeThreshold).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
     // Mapping methods
     private BrokerTokenEntity toEntity(BrokerToken domain) {
         BrokerTokenEntity entity = new BrokerTokenEntity();

@@ -51,8 +51,6 @@ public class SubscribeMarketDataUseCase {
      * @return Subscription ID for managing the subscription
      */
     public String execute(List<String> symbols) {
-        log.info("Subscribing to market data for {} symbols: {}", symbols.size(), symbols);
-
         // Step 1: Validate symbols (basic validation)
         if (symbols == null || symbols.isEmpty()) {
             throw new IllegalArgumentException("Symbols list cannot be null or empty");
@@ -63,6 +61,8 @@ public class SubscribeMarketDataUseCase {
                 throw new IllegalArgumentException("Symbol cannot be null or blank");
             }
         }
+
+        log.info("Subscribing to market data for {} symbols: {}", symbols.size(), symbols);
 
         // Step 2: Subscribe to tick data with handler
         String subscriptionId = brokerStream.subscribeTicks(symbols, this::handleTick);

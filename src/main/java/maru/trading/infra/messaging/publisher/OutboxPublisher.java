@@ -2,13 +2,17 @@ package maru.trading.infra.messaging.publisher;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import maru.trading.infra.config.UlidGenerator;
+import maru.trading.infra.persistence.jpa.entity.EventDlqEntity;
 import maru.trading.infra.persistence.jpa.entity.EventOutboxEntity;
+import maru.trading.infra.persistence.jpa.repository.EventDlqJpaRepository;
 import maru.trading.infra.persistence.jpa.repository.EventOutboxJpaRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -22,6 +26,7 @@ import java.util.List;
 public class OutboxPublisher {
 
 	private final EventOutboxJpaRepository outboxRepository;
+	private final EventDlqJpaRepository dlqRepository;
 
 	@Value("${trading.outbox.publisher.enabled:true}")
 	private boolean enabled;
@@ -71,8 +76,45 @@ public class OutboxPublisher {
 
 				// 재시도 카운트 증가
 				event.incrementRetry(e.getMessage());
-				outboxRepository.save(event);
+
+				// 최대 재시도 초과 시 DLQ로 이동
+				if (event.getRetryCount() >= maxRetry) {
+					moveToDeadLetterQueue(event, e.getMessage());
+				} else {
+					outboxRepository.save(event);
+				}
 			}
+		}
+	}
+
+	/**
+	 * Move failed event to Dead Letter Queue.
+	 * This allows manual intervention and reprocessing.
+	 */
+	private void moveToDeadLetterQueue(EventOutboxEntity event, String failureReason) {
+		try {
+			EventDlqEntity dlqEvent = EventDlqEntity.builder()
+					.dlqId(UlidGenerator.generate())
+					.originalEventId(event.getEventId())
+					.eventType(event.getEventType())
+					.payload(event.getPayloadJson())
+					.failureReason(failureReason)
+					.retryCount(event.getRetryCount())
+					.lastRetryAt(LocalDateTime.now())
+					.build();
+
+			dlqRepository.save(dlqEvent);
+
+			// Remove from outbox after moving to DLQ
+			outboxRepository.delete(event);
+
+			log.warn("Event moved to DLQ: eventId={}, eventType={}, retryCount={}",
+					event.getEventId(), event.getEventType(), event.getRetryCount());
+
+		} catch (Exception dlqError) {
+			log.error("Failed to move event to DLQ: eventId={}", event.getEventId(), dlqError);
+			// Keep in outbox with error - don't lose the event
+			outboxRepository.save(event);
 		}
 	}
 

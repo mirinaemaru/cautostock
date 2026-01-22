@@ -27,4 +27,16 @@ public interface BrokerTokenJpaRepository extends JpaRepository<BrokerTokenEntit
      * Find all tokens for a specific broker and environment.
      */
     List<BrokerTokenEntity> findByBrokerAndEnvironment(String broker, String environment);
+
+    /**
+     * Find tokens expiring before the given threshold.
+     * Used by refresh scheduler to query only tokens needing refresh.
+     */
+    List<BrokerTokenEntity> findByExpiresAtBefore(LocalDateTime threshold);
+
+    /**
+     * Find tokens expiring within the threshold but not yet expired.
+     * More efficient for refresh scheduler - only gets tokens that actually need refresh.
+     */
+    List<BrokerTokenEntity> findByExpiresAtBetween(LocalDateTime now, LocalDateTime threshold);
 }

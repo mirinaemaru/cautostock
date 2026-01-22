@@ -207,14 +207,17 @@ public class ExecutionHistoryQueryController {
 
     /**
      * Get execution statistics by symbol.
+     * Groups executions by symbol and calculates success/failure counts and success rate.
      */
     @GetMapping("/symbol-stats")
     public ResponseEntity<Map<String, Object>> getSymbolStats(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
-            @RequestParam(required = false) String accountId) {
+            @RequestParam(required = false) String accountId,
+            @RequestParam(required = false) String strategyId) {
 
-        log.info("Getting symbol execution stats");
+        log.info("Getting symbol execution stats: startDate={}, endDate={}, accountId={}, strategyId={}",
+                startDate, endDate, accountId, strategyId);
 
         LocalDateTime endDateTime = endDate != null ? endDate.plusDays(1).atStartOfDay() : LocalDateTime.now();
         LocalDateTime startDateTime = startDate != null ? startDate.atStartOfDay() : endDateTime.minusDays(30);
@@ -222,13 +225,79 @@ public class ExecutionHistoryQueryController {
         List<ExecutionHistoryEntity> executions = executionHistoryRepository.findByCreatedAtBetween(
                 startDateTime, endDateTime);
 
-        // Group by symbol placeholder (since ExecutionHistory may not have symbol directly)
-        Map<String, Map<String, Object>> symbolStats = new HashMap<>();
+        // Filter by accountId and strategyId if provided
+        if (accountId != null && !accountId.isEmpty()) {
+            executions = executions.stream()
+                    .filter(e -> accountId.equals(e.getAccountId()))
+                    .collect(Collectors.toList());
+        }
+        if (strategyId != null && !strategyId.isEmpty()) {
+            executions = executions.stream()
+                    .filter(e -> strategyId.equals(e.getStrategyId()))
+                    .collect(Collectors.toList());
+        }
 
-        // For now, return mock data structure
+        // Group by symbol and calculate statistics
+        Map<String, Map<String, Object>> symbolStats = new HashMap<>();
+        for (ExecutionHistoryEntity exec : executions) {
+            String symbol = exec.getSymbol();
+            if (symbol == null || symbol.isEmpty()) {
+                symbol = "UNKNOWN";
+            }
+
+            Map<String, Object> stats = symbolStats.computeIfAbsent(symbol, k -> {
+                Map<String, Object> s = new HashMap<>();
+                s.put("symbol", k);
+                s.put("totalCount", 0);
+                s.put("successCount", 0);
+                s.put("failedCount", 0);
+                s.put("pendingCount", 0);
+                s.put("avgExecutionTimeMs", 0L);
+                s.put("totalExecutionTimeMs", 0L);
+                return s;
+            });
+
+            stats.put("totalCount", (int) stats.get("totalCount") + 1);
+
+            if ("SUCCESS".equals(exec.getStatus())) {
+                stats.put("successCount", (int) stats.get("successCount") + 1);
+            } else if ("FAILED".equals(exec.getStatus())) {
+                stats.put("failedCount", (int) stats.get("failedCount") + 1);
+            } else {
+                stats.put("pendingCount", (int) stats.get("pendingCount") + 1);
+            }
+
+            if (exec.getExecutionTimeMs() != null) {
+                long totalTime = (long) stats.get("totalExecutionTimeMs") + exec.getExecutionTimeMs();
+                stats.put("totalExecutionTimeMs", totalTime);
+            }
+        }
+
+        // Calculate averages and success rates
+        for (Map<String, Object> stats : symbolStats.values()) {
+            int totalCount = (int) stats.get("totalCount");
+            int successCount = (int) stats.get("successCount");
+            long totalExecutionTimeMs = (long) stats.get("totalExecutionTimeMs");
+
+            if (totalCount > 0) {
+                stats.put("avgExecutionTimeMs", totalExecutionTimeMs / totalCount);
+                stats.put("successRate", Math.round(successCount * 100.0 / totalCount * 100) / 100.0);
+            } else {
+                stats.put("successRate", 0.0);
+            }
+            stats.remove("totalExecutionTimeMs"); // Remove internal field
+        }
+
+        // Sort by totalCount descending
+        List<Map<String, Object>> sortedStats = symbolStats.values().stream()
+                .sorted((a, b) -> Integer.compare((int) b.get("totalCount"), (int) a.get("totalCount")))
+                .collect(Collectors.toList());
+
         Map<String, Object> result = new HashMap<>();
-        result.put("items", symbolStats.values());
+        result.put("items", sortedStats);
         result.put("totalSymbols", symbolStats.size());
+        result.put("startDate", startDateTime.toLocalDate());
+        result.put("endDate", endDateTime.toLocalDate());
 
         return ResponseEntity.ok(result);
     }

@@ -1,6 +1,7 @@
 package maru.trading.broker.kis.mapper;
 
 import maru.trading.broker.kis.dto.KisFillMessage;
+import maru.trading.domain.execution.FeeCalculator;
 import maru.trading.domain.execution.Fill;
 import maru.trading.domain.order.Side;
 import maru.trading.infra.config.UlidGenerator;
@@ -23,9 +24,11 @@ public class KisFillMapper {
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HHmmss");
 
     private final UlidGenerator ulidGenerator;
+    private final FeeCalculator feeCalculator;
 
-    public KisFillMapper(UlidGenerator ulidGenerator) {
+    public KisFillMapper(UlidGenerator ulidGenerator, FeeCalculator feeCalculator) {
         this.ulidGenerator = ulidGenerator;
+        this.feeCalculator = feeCalculator;
     }
 
     /**
@@ -44,12 +47,15 @@ public class KisFillMapper {
             BigDecimal fillPrice = new BigDecimal(message.getFillPrice());
             int fillQty = Integer.parseInt(message.getFillQty());
 
-            // TODO: In production, calculate fees and taxes based on broker rules
-            BigDecimal fee = calculateFee(fillPrice, fillQty);
-            BigDecimal tax = calculateTax(fillPrice, fillQty, side);
+            // Calculate fees and taxes using Korea securities rules
+            BigDecimal fee = feeCalculator.calculateFee(symbol, fillPrice, fillQty, side);
+            BigDecimal tax = feeCalculator.calculateTax(symbol, fillPrice, fillQty, side);
 
             LocalDateTime fillTimestamp = parseTime(message.getFillTime());
             String brokerOrderNo = message.getBrokerOrderNo();
+
+            log.debug("Fill mapped: symbol={}, price={}, qty={}, fee={}, tax={}",
+                    symbol, fillPrice, fillQty, fee, tax);
 
             return new Fill(
                     fillId,
@@ -84,29 +90,6 @@ public class KisFillMapper {
             log.warn("Unknown side code: {}, defaulting to BUY", sideCode);
             return Side.BUY;
         }
-    }
-
-    /**
-     * Calculate fee (stub implementation).
-     * In production, use broker-specific fee schedule.
-     */
-    private BigDecimal calculateFee(BigDecimal price, int qty) {
-        // Simple fee: 0.015% of transaction value
-        BigDecimal transactionValue = price.multiply(BigDecimal.valueOf(qty));
-        return transactionValue.multiply(new BigDecimal("0.00015"));
-    }
-
-    /**
-     * Calculate tax (stub implementation).
-     * In production, apply Korea securities transaction tax (0.23% for sells).
-     */
-    private BigDecimal calculateTax(BigDecimal price, int qty, Side side) {
-        if (side == Side.SELL) {
-            // Korea securities transaction tax: 0.23% on sells
-            BigDecimal transactionValue = price.multiply(BigDecimal.valueOf(qty));
-            return transactionValue.multiply(new BigDecimal("0.0023"));
-        }
-        return BigDecimal.ZERO;
     }
 
     /**

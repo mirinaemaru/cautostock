@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS optimization_runs (
     PRIMARY KEY (optimization_id),
     INDEX idx_opt_status (status),
     INDEX idx_opt_created (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
   COMMENT='Parameter optimization runs';
 
 -- ==========================================
@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS walkforward_runs (
     PRIMARY KEY (walkforward_id),
     INDEX idx_wf_status (status),
     INDEX idx_wf_created (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
   COMMENT='Walk-forward analysis runs';
 
 -- ==========================================
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS backtest_jobs (
     INDEX idx_job_status (status),
     INDEX idx_job_related (related_id),
     INDEX idx_job_queued (queued_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
   COMMENT='Async backtest job queue';
 
 -- ==========================================
@@ -109,7 +109,7 @@ CREATE TABLE IF NOT EXISTS monte_carlo_runs (
     INDEX idx_mc_created (created_at),
     CONSTRAINT fk_mc_backtest FOREIGN KEY (base_backtest_id)
         REFERENCES backtest_runs(backtest_id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
   COMMENT='Monte Carlo simulation runs';
 
 -- ==========================================
@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS portfolio_backtest_runs (
     PRIMARY KEY (portfolio_backtest_id),
     INDEX idx_pb_status (status),
     INDEX idx_pb_created (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci
   COMMENT='Portfolio backtest runs';
 
 -- ==========================================

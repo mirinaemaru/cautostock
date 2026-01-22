@@ -1,7 +1,11 @@
 package maru.trading.application.usecase.execution;
 
+import maru.trading.application.ports.repo.AccountRepository;
 import maru.trading.application.ports.repo.PortfolioSnapshotRepository;
 import maru.trading.application.ports.repo.PositionRepository;
+import maru.trading.broker.kis.api.KisBalanceApiClient;
+import maru.trading.broker.kis.dto.KisBalanceResponse;
+import maru.trading.domain.account.Account;
 import maru.trading.domain.execution.PortfolioSnapshot;
 import maru.trading.domain.execution.Position;
 import maru.trading.infra.cache.MarketDataCache;
@@ -18,6 +22,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Use case for calculating P&L and creating portfolio snapshots.
@@ -36,21 +41,27 @@ public class CalculatePnlUseCase {
 
     private final PositionRepository positionRepository;
     private final PortfolioSnapshotRepository snapshotRepository;
+    private final AccountRepository accountRepository;
     private final MarketDataCache marketDataCache;
     private final OutboxService outboxService;
     private final UlidGenerator ulidGenerator;
+    private final KisBalanceApiClient balanceApiClient;
 
     public CalculatePnlUseCase(
             PositionRepository positionRepository,
             PortfolioSnapshotRepository snapshotRepository,
+            AccountRepository accountRepository,
             MarketDataCache marketDataCache,
             OutboxService outboxService,
-            UlidGenerator ulidGenerator) {
+            UlidGenerator ulidGenerator,
+            KisBalanceApiClient balanceApiClient) {
         this.positionRepository = positionRepository;
         this.snapshotRepository = snapshotRepository;
+        this.accountRepository = accountRepository;
         this.marketDataCache = marketDataCache;
         this.outboxService = outboxService;
         this.ulidGenerator = ulidGenerator;
+        this.balanceApiClient = balanceApiClient;
     }
 
     /**
@@ -109,13 +120,49 @@ public class CalculatePnlUseCase {
     }
 
     /**
-     * Execute without cash parameter (fetch from account or use 0).
-     * For MVP, we use 0 as default cash.
+     * Execute without cash parameter - fetches cash balance from KIS API.
+     * Falls back to 0 if API call fails or account not found.
      */
     @Transactional
     public PortfolioSnapshot execute(String accountId) {
-        // TODO: In production, fetch cash balance from account service
-        return execute(accountId, BigDecimal.ZERO);
+        BigDecimal cashBalance = fetchCashBalance(accountId);
+        return execute(accountId, cashBalance);
+    }
+
+    /**
+     * Fetch cash balance from KIS Balance API.
+     *
+     * @param accountId Account ID
+     * @return Cash balance or BigDecimal.ZERO if unable to fetch
+     */
+    private BigDecimal fetchCashBalance(String accountId) {
+        try {
+            Optional<Account> accountOpt = accountRepository.findById(accountId);
+            if (accountOpt.isEmpty()) {
+                log.warn("Account not found for cash balance lookup: {}", accountId);
+                return BigDecimal.ZERO;
+            }
+
+            Account account = accountOpt.get();
+            KisBalanceResponse balanceResponse = balanceApiClient.getBalance(
+                    account.getCano(),
+                    account.getAcntPrdtCd(),
+                    account.getEnvironment()
+            );
+
+            if (balanceResponse.isSuccess()) {
+                BigDecimal cash = balanceResponse.getCashBalance();
+                log.info("Fetched cash balance from KIS API: accountId={}, cash={}", accountId, cash);
+                return cash;
+            } else {
+                log.warn("KIS Balance API returned error: {}", balanceResponse.getMsg1());
+                return BigDecimal.ZERO;
+            }
+        } catch (Exception e) {
+            log.warn("Failed to fetch cash balance from KIS API, using 0: accountId={}, error={}",
+                    accountId, e.getMessage());
+            return BigDecimal.ZERO;
+        }
     }
 
     private void publishPnlUpdatedEvent(PortfolioSnapshot snapshot) {

@@ -37,4 +37,10 @@ public interface BrokerTokenRepository {
      * Find all tokens for a specific broker and environment.
      */
     List<BrokerToken> findByBrokerAndEnvironment(String broker, String environment);
+
+    /**
+     * Find tokens that need refresh (expire within the threshold, not yet expired).
+     * Used by refresh scheduler for optimized token refresh.
+     */
+    List<BrokerToken> findTokensNeedingRefresh(java.time.LocalDateTime now, java.time.LocalDateTime expiresBeforeThreshold);
 }

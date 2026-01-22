@@ -1,6 +1,6 @@
 spring:
   profiles:
-    active: live
+    active: paper  # MVP 안전: 기본 프로파일을 PAPER로 설정
   application:
     name: trading-system-mvp
   mvc:
@@ -131,3 +131,16 @@ trading:
       # cron: "0 0 2 * * MON-FRI"  # 평일만 새벽 2시
       # cron: "0 30 8 * * MON-FRI"  # 평일 장 시작 30분 전
       markets: "KOSPI,KOSDAQ"
+
+  scheduler:
+    pool-size: 4  # 스케줄러 스레드 풀 크기
+    thread-name-prefix: "trading-scheduler-"
+    await-termination-seconds: 30  # 종료 시 대기 시간
+
+  fee:
+    broker-commission-rate: 0.00015  # 0.015% 증권사 수수료 (일반적인 온라인 거래 기준)
+    minimum-commission: 0  # 최소 수수료 (원), 0이면 미적용
+    # 참고: 증권거래세는 KoreaSecuritiesFeeCalculator에서 자동 계산
+    # - KOSPI/KOSDAQ: 매도 시 0.23%
+    # - ETF: 0%
+    # - KONEX: 매도 시 0.1%

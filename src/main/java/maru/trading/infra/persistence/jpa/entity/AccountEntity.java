@@ -46,6 +46,12 @@ public class AccountEntity {
 	@Builder.Default
 	private String delyn = "N";
 
+	@Column(name = "deleted_at")
+	private LocalDateTime deletedAt;
+
+	@Column(name = "deleted_by", length = 64)
+	private String deletedBy;
+
 	@Column(name = "created_at", nullable = false)
 	private LocalDateTime createdAt;
 
@@ -74,6 +80,14 @@ public class AccountEntity {
 	public void softDelete() {
 		this.delyn = "Y";
 		this.status = AccountStatus.INACTIVE;
+		this.deletedAt = LocalDateTime.now();
+	}
+
+	public void softDelete(String deletedBy) {
+		this.delyn = "Y";
+		this.status = AccountStatus.INACTIVE;
+		this.deletedAt = LocalDateTime.now();
+		this.deletedBy = deletedBy;
 	}
 
 	public boolean isDeleted() {

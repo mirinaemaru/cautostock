@@ -56,6 +56,14 @@ public interface ExecutionHistoryJpaRepository extends JpaRepository<ExecutionHi
     @Query("SELECT COUNT(e) FROM ExecutionHistoryEntity e WHERE e.strategyId = :strategyId AND e.status = :status")
     long countByStrategyIdAndStatus(@Param("strategyId") String strategyId, @Param("status") String status);
 
+    @Query("SELECT COUNT(e) FROM ExecutionHistoryEntity e WHERE e.accountId = :accountId AND e.status = :status " +
+           "AND e.createdAt BETWEEN :from AND :to")
+    long countByAccountIdAndStatusAndCreatedAtBetween(
+            @Param("accountId") String accountId,
+            @Param("status") String status,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to);
+
     @Query("SELECT e FROM ExecutionHistoryEntity e WHERE e.createdAt BETWEEN :from AND :to ORDER BY e.createdAt DESC")
     List<ExecutionHistoryEntity> findByCreatedAtBetween(
             @Param("from") LocalDateTime from,

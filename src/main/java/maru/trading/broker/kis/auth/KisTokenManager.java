@@ -7,9 +7,12 @@ import maru.trading.domain.account.BrokerToken;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -27,11 +30,12 @@ public class KisTokenManager {
 
     private static final Logger log = LoggerFactory.getLogger(KisTokenManager.class);
     private static final Duration REFRESH_THRESHOLD = Duration.ofMinutes(5);
+    private static final int MAX_CACHE_SIZE = 100; // Maximum number of cached tokens
 
     private final BrokerTokenRepository tokenRepository;
     private final RefreshTokenUseCase refreshTokenUseCase;
     private final KisProperties kisProperties;
-    private final Map<TokenKey, BrokerToken> tokenCache;
+    private final Map<TokenKey, CachedToken> tokenCache;
 
     @Value("${spring.profiles.active:paper}")
     private String activeProfile;
@@ -44,6 +48,27 @@ public class KisTokenManager {
         this.refreshTokenUseCase = refreshTokenUseCase;
         this.kisProperties = kisProperties;
         this.tokenCache = new ConcurrentHashMap<>();
+    }
+
+    /**
+     * Wrapper class for cached token with timestamp.
+     */
+    private static class CachedToken {
+        final BrokerToken token;
+        final LocalDateTime cachedAt;
+
+        CachedToken(BrokerToken token) {
+            this.token = token;
+            this.cachedAt = LocalDateTime.now();
+        }
+
+        boolean isExpired() {
+            return token.isExpired();
+        }
+
+        boolean needsRefresh(Duration threshold) {
+            return token.needsRefresh(threshold);
+        }
     }
 
     /**
@@ -77,10 +102,10 @@ public class KisTokenManager {
         TokenKey key = new TokenKey(broker, environment);
 
         // Check cache first
-        BrokerToken cachedToken = tokenCache.get(key);
-        if (cachedToken != null && !cachedToken.needsRefresh(REFRESH_THRESHOLD)) {
+        CachedToken cached = tokenCache.get(key);
+        if (cached != null && !cached.needsRefresh(REFRESH_THRESHOLD)) {
             log.debug("Returning cached token: broker={}, environment={}", broker, environment);
-            return cachedToken;
+            return cached.token;
         }
 
         // Check database
@@ -88,15 +113,47 @@ public class KisTokenManager {
         if (dbToken.isPresent() && !dbToken.get().needsRefresh(REFRESH_THRESHOLD)) {
             log.debug("Returning token from database: broker={}, environment={}", broker, environment);
             BrokerToken token = dbToken.get();
-            tokenCache.put(key, token); // Update cache
+            putInCache(key, token); // Update cache with size check
             return token;
         }
 
         // Refresh token
         log.info("Token expired or expiring soon, refreshing: broker={}, environment={}", broker, environment);
         BrokerToken refreshedToken = refreshTokenUseCase.execute(broker, environment, appKey, appSecret);
-        tokenCache.put(key, refreshedToken); // Update cache
+        putInCache(key, refreshedToken); // Update cache with size check
         return refreshedToken;
+    }
+
+    /**
+     * Put token in cache with size limit enforcement.
+     */
+    private void putInCache(TokenKey key, BrokerToken token) {
+        // Check cache size limit before adding
+        if (tokenCache.size() >= MAX_CACHE_SIZE && !tokenCache.containsKey(key)) {
+            evictOldestEntry();
+        }
+        tokenCache.put(key, new CachedToken(token));
+    }
+
+    /**
+     * Evict the oldest entry from cache when size limit is reached.
+     */
+    private void evictOldestEntry() {
+        TokenKey oldestKey = null;
+        LocalDateTime oldestTime = LocalDateTime.now();
+
+        for (Map.Entry<TokenKey, CachedToken> entry : tokenCache.entrySet()) {
+            if (entry.getValue().cachedAt.isBefore(oldestTime)) {
+                oldestTime = entry.getValue().cachedAt;
+                oldestKey = entry.getKey();
+            }
+        }
+
+        if (oldestKey != null) {
+            tokenCache.remove(oldestKey);
+            log.debug("Evicted oldest token from cache: broker={}, environment={}",
+                    oldestKey.broker, oldestKey.environment);
+        }
     }
 
     /**
@@ -117,7 +174,7 @@ public class KisTokenManager {
                     appSecret
             );
             TokenKey key = new TokenKey(token.getBroker(), token.getEnvironment());
-            tokenCache.put(key, refreshedToken); // Update cache
+            putInCache(key, refreshedToken); // Update cache with size check
             return refreshedToken;
         }
         return token;
@@ -129,6 +186,38 @@ public class KisTokenManager {
     public void clearCache() {
         log.info("Clearing token cache");
         tokenCache.clear();
+    }
+
+    /**
+     * Get current cache size.
+     */
+    public int getCacheSize() {
+        return tokenCache.size();
+    }
+
+    /**
+     * Scheduled cleanup of expired tokens from cache.
+     * Runs every 5 minutes to remove expired tokens and free memory.
+     */
+    @Scheduled(fixedDelay = 300000) // 5 minutes
+    public void cleanupExpiredTokens() {
+        int removedCount = 0;
+        Iterator<Map.Entry<TokenKey, CachedToken>> iterator = tokenCache.entrySet().iterator();
+
+        while (iterator.hasNext()) {
+            Map.Entry<TokenKey, CachedToken> entry = iterator.next();
+            if (entry.getValue().isExpired()) {
+                iterator.remove();
+                removedCount++;
+                log.debug("Removed expired token from cache: broker={}, environment={}",
+                        entry.getKey().broker, entry.getKey().environment);
+            }
+        }
+
+        if (removedCount > 0) {
+            log.info("Cleaned up {} expired tokens from cache. Current size: {}",
+                    removedCount, tokenCache.size());
+        }
     }
 
     /**

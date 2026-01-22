@@ -406,11 +406,12 @@ public class BacktestEngineImpl implements BacktestEngine {
         entity.complete(result.getFinalCapital(), result.getTotalReturn());
 
         if (result.getPerformanceMetrics() != null) {
-            entity.updateTradeStats(
-                    result.getPerformanceMetrics().getTotalTrades(),
-                    result.getPerformanceMetrics().getWinningTrades(),
-                    result.getPerformanceMetrics().getLosingTrades()
-            );
+            PerformanceMetrics metrics = result.getPerformanceMetrics();
+            // null 값은 0으로 처리하여 NPE 방지
+            int totalTrades = metrics.getTotalTrades() != null ? metrics.getTotalTrades() : 0;
+            int winningTrades = metrics.getWinningTrades() != null ? metrics.getWinningTrades() : 0;
+            int losingTrades = metrics.getLosingTrades() != null ? metrics.getLosingTrades() : 0;
+            entity.updateTradeStats(totalTrades, winningTrades, losingTrades);
         }
 
         backtestRunRepository.save(entity);

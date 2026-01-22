@@ -3,6 +3,7 @@ package maru.trading.api.controller.query;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import maru.trading.api.dto.response.PositionResponse;
+import maru.trading.infra.cache.MarketDataCache;
 import maru.trading.infra.persistence.jpa.entity.PositionEntity;
 import maru.trading.infra.persistence.jpa.repository.PositionJpaRepository;
 import org.springframework.http.ResponseEntity;
@@ -24,6 +25,7 @@ import java.util.stream.Collectors;
 public class PositionQueryController {
 
 	private final PositionJpaRepository positionRepository;
+	private final MarketDataCache marketDataCache;
 
 	/**
 	 * 포지션 검색
@@ -76,10 +78,18 @@ public class PositionQueryController {
 				.filter(p -> p.getQty().compareTo(BigDecimal.ZERO) > 0)
 				.toList();
 
-		// 총 평가액 계산
-		BigDecimal totalValue = activePositions.stream()
-				.map(p -> p.getAvgPrice().multiply(p.getQty()))
-				.reduce(BigDecimal.ZERO, BigDecimal::add);
+		// 총 평가액 계산 (현재가 기준)
+		BigDecimal totalValue = BigDecimal.ZERO;
+		BigDecimal totalUnrealizedPnl = BigDecimal.ZERO;
+
+		for (PositionEntity p : activePositions) {
+			BigDecimal currentPrice = getCurrentPrice(p.getSymbol(), p.getAvgPrice());
+			BigDecimal positionValue = currentPrice.multiply(p.getQty());
+			BigDecimal unrealizedPnl = p.getQty().multiply(currentPrice.subtract(p.getAvgPrice()));
+
+			totalValue = totalValue.add(positionValue);
+			totalUnrealizedPnl = totalUnrealizedPnl.add(unrealizedPnl);
+		}
 
 		// 총 실현손익
 		BigDecimal totalRealizedPnl = activePositions.stream()
@@ -97,7 +107,7 @@ public class PositionQueryController {
 		summary.put("totalPositions", activePositions.size());
 		summary.put("totalValue", totalValue);
 		summary.put("totalRealizedPnl", totalRealizedPnl);
-		summary.put("totalUnrealizedPnl", BigDecimal.ZERO); // 현재가 없이는 계산 불가
+		summary.put("totalUnrealizedPnl", totalUnrealizedPnl);
 		summary.put("symbolCount", symbolCount);
 		summary.put("timestamp", java.time.LocalDateTime.now());
 
@@ -118,8 +128,13 @@ public class PositionQueryController {
 	}
 
 	private PositionResponse toResponse(PositionEntity entity) {
-		// TODO: 현재가 조회하여 미실현손익 계산 (추후 구현)
-		BigDecimal currentPrice = entity.getAvgPrice(); // 임시로 평단가 사용
+		// 현재가 조회: MarketDataCache에서 실시간 가격 조회, 없으면 평단가 사용
+		BigDecimal currentPrice = marketDataCache.getPrice(entity.getSymbol());
+		if (currentPrice == null) {
+			log.debug("No current price available for symbol {}, using avg price", entity.getSymbol());
+			currentPrice = entity.getAvgPrice();
+		}
+
 		BigDecimal unrealizedPnl = entity.getQty().multiply(currentPrice.subtract(entity.getAvgPrice()));
 		BigDecimal totalValue = entity.getQty().multiply(currentPrice);
 
@@ -135,5 +150,13 @@ public class PositionQueryController {
 				.totalValue(totalValue)
 				.updatedAt(entity.getUpdatedAt())
 				.build();
+	}
+
+	/**
+	 * 현재가 조회 헬퍼: MarketDataCache에서 조회, 없으면 평단가 반환
+	 */
+	private BigDecimal getCurrentPrice(String symbol, BigDecimal fallbackPrice) {
+		BigDecimal price = marketDataCache.getPrice(symbol);
+		return price != null ? price : fallbackPrice;
 	}
 }
