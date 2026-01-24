@@ -126,6 +126,66 @@ public abstract class BaseStrategy implements StrategyEngine {
     }
 
     /**
+     * Extract volumes from bars.
+     *
+     * @param bars List of market bars
+     * @return List of volumes
+     */
+    protected List<Long> extractVolumes(List<MarketBar> bars) {
+        return bars.stream()
+                .map(MarketBar::getVolume)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Get parameter with default value (double).
+     *
+     * @param context Strategy context
+     * @param key Parameter key
+     * @param defaultValue Default value if parameter not found
+     * @return Parameter value or default
+     */
+    protected double getParamWithDefault(StrategyContext context, String key, double defaultValue) {
+        try {
+            return context.getParamAsDouble(key);
+        } catch (IllegalArgumentException e) {
+            return defaultValue;
+        }
+    }
+
+    /**
+     * Get parameter with default value (int).
+     *
+     * @param context Strategy context
+     * @param key Parameter key
+     * @param defaultValue Default value if parameter not found
+     * @return Parameter value or default
+     */
+    protected int getParamWithDefault(StrategyContext context, String key, int defaultValue) {
+        try {
+            return context.getParamAsInt(key);
+        } catch (IllegalArgumentException e) {
+            return defaultValue;
+        }
+    }
+
+    /**
+     * Get parameter with default value (boolean).
+     *
+     * @param context Strategy context
+     * @param key Parameter key
+     * @param defaultValue Default value if parameter not found
+     * @return Parameter value or default
+     */
+    protected boolean getParamWithDefault(StrategyContext context, String key, boolean defaultValue) {
+        try {
+            return context.getParamAsBoolean(key);
+        } catch (IllegalArgumentException e) {
+            return defaultValue;
+        }
+    }
+
+    /**
      * Abstract method for strategy-specific evaluation logic.
      * Subclasses implement their trading rules here.
      *

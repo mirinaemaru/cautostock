@@ -203,4 +203,191 @@ class IndicatorLibraryTest {
                     .hasMessageContaining("Insufficient data");
         }
     }
+
+    @Nested
+    @DisplayName("VWAP Tests")
+    class VWAPTests {
+
+        @Test
+        @DisplayName("Should calculate VWAP correctly")
+        void shouldCalculateVWAPCorrectly() {
+            List<BigDecimal> highs = createPrices(105, 110, 108);
+            List<BigDecimal> lows = createPrices(100, 102, 103);
+            List<BigDecimal> closes = createPrices(103, 108, 106);
+            List<Long> volumes = Arrays.asList(1000L, 2000L, 1500L);
+
+            List<IndicatorLibrary.VWAPResult> vwapResults = IndicatorLibrary.calculateVWAP(highs, lows, closes, volumes);
+
+            assertThat(vwapResults).hasSize(3);
+            // First VWAP = typical price = (105 + 100 + 103) / 3 = 102.67
+            assertThat(vwapResults.get(0).getVwap().doubleValue()).isCloseTo(102.67, within(0.01));
+            // VWAP is cumulative volume weighted
+            assertThat(vwapResults.get(2).getCumulativeVolume().longValue()).isEqualTo(4500L);
+        }
+
+        @Test
+        @DisplayName("Should throw for null inputs")
+        void shouldThrowForNullInputs() {
+            assertThatThrownBy(() -> IndicatorLibrary.calculateVWAP(null, null, null, null))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("cannot be null");
+        }
+
+        @Test
+        @DisplayName("Should throw for mismatched sizes")
+        void shouldThrowForMismatchedSizes() {
+            List<BigDecimal> highs = createPrices(105, 110);
+            List<BigDecimal> lows = createPrices(100, 102, 103);
+            List<BigDecimal> closes = createPrices(103, 108);
+            List<Long> volumes = Arrays.asList(1000L, 2000L);
+
+            assertThatThrownBy(() -> IndicatorLibrary.calculateVWAP(highs, lows, closes, volumes))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("same size");
+        }
+    }
+
+    @Nested
+    @DisplayName("Range and Breakout Target Tests")
+    class RangeBreakoutTests {
+
+        @Test
+        @DisplayName("Should calculate range correctly")
+        void shouldCalculateRangeCorrectly() {
+            BigDecimal high = BigDecimal.valueOf(110);
+            BigDecimal low = BigDecimal.valueOf(100);
+
+            BigDecimal range = IndicatorLibrary.calculateRange(high, low);
+
+            assertThat(range).isEqualByComparingTo(BigDecimal.valueOf(10));
+        }
+
+        @Test
+        @DisplayName("Should throw for high < low")
+        void shouldThrowForInvalidHighLow() {
+            BigDecimal high = BigDecimal.valueOf(90);
+            BigDecimal low = BigDecimal.valueOf(100);
+
+            assertThatThrownBy(() -> IndicatorLibrary.calculateRange(high, low))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("High must be >= low");
+        }
+
+        @Test
+        @DisplayName("Should calculate breakout target correctly")
+        void shouldCalculateBreakoutTargetCorrectly() {
+            BigDecimal todayOpen = BigDecimal.valueOf(100);
+            BigDecimal yesterdayHigh = BigDecimal.valueOf(110);
+            BigDecimal yesterdayLow = BigDecimal.valueOf(100);
+            double k = 0.5;
+
+            BigDecimal target = IndicatorLibrary.calculateBreakoutTarget(todayOpen, yesterdayHigh, yesterdayLow, k);
+
+            // Target = 100 + (110 - 100) * 0.5 = 100 + 5 = 105
+            assertThat(target.doubleValue()).isCloseTo(105.0, within(0.01));
+        }
+
+        @Test
+        @DisplayName("Should throw for invalid K factor")
+        void shouldThrowForInvalidKFactor() {
+            BigDecimal todayOpen = BigDecimal.valueOf(100);
+            BigDecimal yesterdayHigh = BigDecimal.valueOf(110);
+            BigDecimal yesterdayLow = BigDecimal.valueOf(100);
+
+            assertThatThrownBy(() -> IndicatorLibrary.calculateBreakoutTarget(todayOpen, yesterdayHigh, yesterdayLow, 1.5))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("K factor must be between 0 and 1");
+        }
+    }
+
+    @Nested
+    @DisplayName("Standard Deviation Tests")
+    class StdDevTests {
+
+        @Test
+        @DisplayName("Should calculate standard deviation correctly")
+        void shouldCalculateStdDevCorrectly() {
+            List<BigDecimal> values = createPrices(10, 12, 14, 16, 18);
+            // Mean = 14, Variance = ((10-14)^2 + (12-14)^2 + (14-14)^2 + (16-14)^2 + (18-14)^2) / 5
+            // = (16 + 4 + 0 + 4 + 16) / 5 = 40 / 5 = 8
+            // StdDev = sqrt(8) ≈ 2.83
+
+            BigDecimal stdDev = IndicatorLibrary.calculateStdDev(values);
+
+            assertThat(stdDev.doubleValue()).isCloseTo(2.83, within(0.01));
+        }
+
+        @Test
+        @DisplayName("Should return zero for single value")
+        void shouldReturnZeroForSingleValue() {
+            List<BigDecimal> values = createPrices(100);
+
+            BigDecimal stdDev = IndicatorLibrary.calculateStdDev(values);
+
+            assertThat(stdDev).isEqualByComparingTo(BigDecimal.ZERO);
+        }
+
+        @Test
+        @DisplayName("Should throw for empty list")
+        void shouldThrowForEmptyList() {
+            assertThatThrownBy(() -> IndicatorLibrary.calculateStdDev(Arrays.asList()))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("null or empty");
+        }
+    }
+
+    @Nested
+    @DisplayName("Simple Spread and Z-Score Tests")
+    class SpreadZScoreTests {
+
+        @Test
+        @DisplayName("Should calculate spread and Z-Score correctly")
+        void shouldCalculateSpreadAndZScoreCorrectly() {
+            // Create prices with mean = 50, last price = 60
+            List<BigDecimal> prices = createPrices(40, 45, 50, 55, 60);
+
+            IndicatorLibrary.SpreadResult result = IndicatorLibrary.calculateSimpleSpread(prices, 5);
+
+            // Mean of [40, 45, 50, 55, 60] = 50
+            assertThat(result.getMeanSpread().doubleValue()).isCloseTo(50.0, within(0.01));
+            // Spread = 60 - 50 = 10
+            assertThat(result.getSpread().doubleValue()).isCloseTo(10.0, within(0.01));
+            // StdDev should be positive
+            assertThat(result.getStdDev().doubleValue()).isGreaterThan(0);
+            // Z-Score = (60 - 50) / stdDev
+            assertThat(result.getZScore().doubleValue()).isGreaterThan(0);
+        }
+
+        @Test
+        @DisplayName("Should return Z-Score of zero when stdDev is zero")
+        void shouldReturnZeroZScoreWhenStdDevIsZero() {
+            // All same prices = zero standard deviation
+            List<BigDecimal> prices = createPrices(100, 100, 100, 100, 100);
+
+            IndicatorLibrary.SpreadResult result = IndicatorLibrary.calculateSimpleSpread(prices, 5);
+
+            assertThat(result.getStdDev()).isEqualByComparingTo(BigDecimal.ZERO);
+            assertThat(result.getZScore()).isEqualByComparingTo(BigDecimal.ZERO);
+        }
+
+        @Test
+        @DisplayName("Should throw for insufficient data")
+        void shouldThrowForInsufficientData() {
+            List<BigDecimal> prices = createPrices(10, 20, 30);
+
+            assertThatThrownBy(() -> IndicatorLibrary.calculateSimpleSpread(prices, 5))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Insufficient data");
+        }
+
+        @Test
+        @DisplayName("Should throw for invalid lookback period")
+        void shouldThrowForInvalidLookbackPeriod() {
+            List<BigDecimal> prices = createPrices(10, 20, 30, 40, 50);
+
+            assertThatThrownBy(() -> IndicatorLibrary.calculateSimpleSpread(prices, 0))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("positive");
+        }
+    }
 }

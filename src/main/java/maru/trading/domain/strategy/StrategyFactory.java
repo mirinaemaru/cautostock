@@ -3,7 +3,10 @@ package maru.trading.domain.strategy;
 import maru.trading.domain.strategy.impl.BollingerBandsStrategy;
 import maru.trading.domain.strategy.impl.MACDStrategy;
 import maru.trading.domain.strategy.impl.MACrossoverStrategy;
+import maru.trading.domain.strategy.impl.PairTradingStrategy;
 import maru.trading.domain.strategy.impl.RSIStrategy;
+import maru.trading.domain.strategy.impl.VWAPStrategy;
+import maru.trading.domain.strategy.impl.VolatilityBreakoutStrategy;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -31,6 +34,9 @@ public class StrategyFactory {
         STRATEGY_REGISTRY.put("RSI", RSIStrategy.class);
         STRATEGY_REGISTRY.put("BOLLINGER_BANDS", BollingerBandsStrategy.class);
         STRATEGY_REGISTRY.put("MACD", MACDStrategy.class);
+        STRATEGY_REGISTRY.put("VWAP", VWAPStrategy.class);
+        STRATEGY_REGISTRY.put("VOLATILITY_BREAKOUT", VolatilityBreakoutStrategy.class);
+        STRATEGY_REGISTRY.put("PAIR_TRADING", PairTradingStrategy.class);
     }
 
     /**

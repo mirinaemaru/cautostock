@@ -374,4 +374,259 @@ public class IndicatorLibrary {
             return histogram;
         }
     }
+
+    // ==================== VWAP (Volume Weighted Average Price) ====================
+
+    /**
+     * VWAP calculation result.
+     */
+    public static class VWAPResult {
+        private final BigDecimal vwap;
+        private final BigDecimal cumulativeTPV; // Typical Price × Volume cumulative
+        private final BigDecimal cumulativeVolume;
+
+        public VWAPResult(BigDecimal vwap, BigDecimal cumulativeTPV, BigDecimal cumulativeVolume) {
+            this.vwap = vwap;
+            this.cumulativeTPV = cumulativeTPV;
+            this.cumulativeVolume = cumulativeVolume;
+        }
+
+        public BigDecimal getVwap() {
+            return vwap;
+        }
+
+        public BigDecimal getCumulativeTPV() {
+            return cumulativeTPV;
+        }
+
+        public BigDecimal getCumulativeVolume() {
+            return cumulativeVolume;
+        }
+    }
+
+    /**
+     * Calculate VWAP (Volume Weighted Average Price).
+     *
+     * VWAP = Σ(Typical Price × Volume) / Σ(Volume)
+     * where Typical Price = (High + Low + Close) / 3
+     *
+     * @param highs List of high prices
+     * @param lows List of low prices
+     * @param closes List of close prices
+     * @param volumes List of volumes
+     * @return List of VWAP results (size = input size)
+     * @throws IllegalArgumentException if inputs are invalid or sizes mismatch
+     */
+    public static List<VWAPResult> calculateVWAP(
+            List<BigDecimal> highs,
+            List<BigDecimal> lows,
+            List<BigDecimal> closes,
+            List<Long> volumes) {
+
+        if (highs == null || lows == null || closes == null || volumes == null) {
+            throw new IllegalArgumentException("All price and volume lists cannot be null");
+        }
+        if (highs.isEmpty() || lows.isEmpty() || closes.isEmpty() || volumes.isEmpty()) {
+            throw new IllegalArgumentException("All price and volume lists cannot be empty");
+        }
+        if (highs.size() != lows.size() || lows.size() != closes.size() || closes.size() != volumes.size()) {
+            throw new IllegalArgumentException("All lists must have the same size");
+        }
+
+        List<VWAPResult> results = new ArrayList<>();
+        BigDecimal cumulativeTPV = BigDecimal.ZERO;
+        BigDecimal cumulativeVolume = BigDecimal.ZERO;
+
+        for (int i = 0; i < highs.size(); i++) {
+            // Typical Price = (High + Low + Close) / 3
+            BigDecimal typicalPrice = highs.get(i)
+                    .add(lows.get(i))
+                    .add(closes.get(i))
+                    .divide(BigDecimal.valueOf(3), SCALE, ROUNDING_MODE);
+
+            BigDecimal volume = BigDecimal.valueOf(volumes.get(i));
+            BigDecimal tpv = typicalPrice.multiply(volume);
+
+            cumulativeTPV = cumulativeTPV.add(tpv);
+            cumulativeVolume = cumulativeVolume.add(volume);
+
+            BigDecimal vwap;
+            if (cumulativeVolume.compareTo(BigDecimal.ZERO) == 0) {
+                vwap = typicalPrice; // Fallback to typical price if no volume
+            } else {
+                vwap = cumulativeTPV.divide(cumulativeVolume, SCALE, ROUNDING_MODE);
+            }
+
+            results.add(new VWAPResult(vwap, cumulativeTPV, cumulativeVolume));
+        }
+
+        return results;
+    }
+
+    // ==================== Volatility Breakout ====================
+
+    /**
+     * Calculate price range (High - Low).
+     *
+     * @param high High price
+     * @param low Low price
+     * @return Range (High - Low)
+     * @throws IllegalArgumentException if inputs are invalid
+     */
+    public static BigDecimal calculateRange(BigDecimal high, BigDecimal low) {
+        if (high == null || low == null) {
+            throw new IllegalArgumentException("High and low cannot be null");
+        }
+        if (high.compareTo(low) < 0) {
+            throw new IllegalArgumentException("High must be >= low: high=" + high + ", low=" + low);
+        }
+        return high.subtract(low);
+    }
+
+    /**
+     * Calculate volatility breakout target price.
+     *
+     * Target = Today's Open + (Yesterday's Range × K)
+     *
+     * @param todayOpen Today's opening price
+     * @param yesterdayHigh Yesterday's high price
+     * @param yesterdayLow Yesterday's low price
+     * @param k K factor (0.0 to 1.0, typically 0.5)
+     * @return Breakout target price
+     * @throws IllegalArgumentException if inputs are invalid
+     */
+    public static BigDecimal calculateBreakoutTarget(
+            BigDecimal todayOpen,
+            BigDecimal yesterdayHigh,
+            BigDecimal yesterdayLow,
+            double k) {
+
+        if (todayOpen == null) {
+            throw new IllegalArgumentException("Today's open cannot be null");
+        }
+        if (k < 0 || k > 1) {
+            throw new IllegalArgumentException("K factor must be between 0 and 1: " + k);
+        }
+
+        BigDecimal range = calculateRange(yesterdayHigh, yesterdayLow);
+        BigDecimal kFactor = BigDecimal.valueOf(k);
+        BigDecimal rangeContribution = range.multiply(kFactor);
+
+        return todayOpen.add(rangeContribution).setScale(SCALE, ROUNDING_MODE);
+    }
+
+    // ==================== Spread / Z-Score (for Mean Reversion) ====================
+
+    /**
+     * Spread calculation result for mean reversion strategy.
+     */
+    public static class SpreadResult {
+        private final BigDecimal spread;      // Current spread (price - mean)
+        private final BigDecimal meanSpread;  // Mean of lookback period (moving average)
+        private final BigDecimal stdDev;      // Standard deviation
+        private final BigDecimal zScore;      // Z-Score = (price - mean) / stdDev
+
+        public SpreadResult(BigDecimal spread, BigDecimal meanSpread, BigDecimal stdDev, BigDecimal zScore) {
+            this.spread = spread;
+            this.meanSpread = meanSpread;
+            this.stdDev = stdDev;
+            this.zScore = zScore;
+        }
+
+        public BigDecimal getSpread() {
+            return spread;
+        }
+
+        public BigDecimal getMeanSpread() {
+            return meanSpread;
+        }
+
+        public BigDecimal getStdDev() {
+            return stdDev;
+        }
+
+        public BigDecimal getZScore() {
+            return zScore;
+        }
+    }
+
+    /**
+     * Calculate standard deviation.
+     *
+     * @param values List of values
+     * @return Standard deviation
+     * @throws IllegalArgumentException if values is null or empty
+     */
+    public static BigDecimal calculateStdDev(List<BigDecimal> values) {
+        if (values == null || values.isEmpty()) {
+            throw new IllegalArgumentException("Values cannot be null or empty");
+        }
+        if (values.size() == 1) {
+            return BigDecimal.ZERO;
+        }
+
+        // Calculate mean
+        BigDecimal mean = calculateAverage(values);
+
+        // Calculate variance
+        BigDecimal variance = BigDecimal.ZERO;
+        for (BigDecimal value : values) {
+            BigDecimal diff = value.subtract(mean);
+            variance = variance.add(diff.multiply(diff));
+        }
+        variance = variance.divide(BigDecimal.valueOf(values.size()), SCALE, ROUNDING_MODE);
+
+        // Standard deviation = sqrt(variance)
+        return BigDecimal.valueOf(Math.sqrt(variance.doubleValue())).setScale(SCALE, ROUNDING_MODE);
+    }
+
+    /**
+     * Calculate simple spread (price vs moving average) and Z-Score.
+     *
+     * Used for single-asset mean reversion strategy.
+     * Spread = Current Price - Moving Average
+     * Z-Score = Spread / Standard Deviation
+     *
+     * @param prices List of prices (must have at least 'lookbackPeriod' elements)
+     * @param lookbackPeriod Period for mean and std dev calculation
+     * @return SpreadResult with spread, mean, stdDev, and zScore
+     * @throws IllegalArgumentException if insufficient data
+     */
+    public static SpreadResult calculateSimpleSpread(List<BigDecimal> prices, int lookbackPeriod) {
+        if (prices == null || prices.isEmpty()) {
+            throw new IllegalArgumentException("Prices cannot be null or empty");
+        }
+        if (lookbackPeriod <= 0) {
+            throw new IllegalArgumentException("Lookback period must be positive: " + lookbackPeriod);
+        }
+        if (prices.size() < lookbackPeriod) {
+            throw new IllegalArgumentException(
+                    "Insufficient data for spread calculation: need " + lookbackPeriod + " prices, got " + prices.size());
+        }
+
+        // Get the last lookbackPeriod prices for calculation
+        List<BigDecimal> lookbackPrices = prices.subList(prices.size() - lookbackPeriod, prices.size());
+
+        // Current price is the last price
+        BigDecimal currentPrice = prices.get(prices.size() - 1);
+
+        // Calculate mean (moving average)
+        BigDecimal mean = calculateAverage(lookbackPrices);
+
+        // Calculate standard deviation
+        BigDecimal stdDev = calculateStdDev(lookbackPrices);
+
+        // Spread = Current Price - Mean
+        BigDecimal spread = currentPrice.subtract(mean);
+
+        // Z-Score = Spread / StdDev (if stdDev is 0, Z-Score is 0)
+        BigDecimal zScore;
+        if (stdDev.compareTo(BigDecimal.ZERO) == 0) {
+            zScore = BigDecimal.ZERO;
+        } else {
+            zScore = spread.divide(stdDev, SCALE, ROUNDING_MODE);
+        }
+
+        return new SpreadResult(spread, mean, stdDev, zScore);
+    }
 }

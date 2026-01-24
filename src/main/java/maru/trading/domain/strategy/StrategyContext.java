@@ -134,4 +134,22 @@ public class StrategyContext {
         }
         throw new IllegalArgumentException("Parameter " + key + " is not a double: " + value);
     }
+
+    /**
+     * Get parameter as Boolean.
+     * Throws IllegalArgumentException if parameter is missing or not convertible.
+     */
+    public Boolean getParamAsBoolean(String key) {
+        Object value = params.get(key);
+        if (value == null) {
+            throw new IllegalArgumentException("Missing required parameter: " + key);
+        }
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        if (value instanceof String) {
+            return Boolean.parseBoolean((String) value);
+        }
+        throw new IllegalArgumentException("Parameter " + key + " is not a boolean: " + value);
+    }
 }
